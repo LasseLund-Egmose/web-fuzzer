@@ -1,3 +1,4 @@
+import os
 import random
 import string
 
@@ -69,7 +70,7 @@ def wordlists_product(wordlist_1: list, wordlist_2: list):
     
     return full_wordlist
 
-def wordlist_build(wordlist_files: list, encoders, args):
+def wordlist_build(wordlist_files: list, encoders, data_dir, args):
     full_wordlist = []
 
     for wordlist_files in wordlist_files:
@@ -85,7 +86,7 @@ def wordlist_build(wordlist_files: list, encoders, args):
             for output in encoder(w):
                 full_wordlist_encoded.append(output)
 
-    full_wordlist_file = f"./fuzzy-data/wordlist-{random_str(16)}.txt"
+    full_wordlist_file = os.path.join(data_dir, f"wordlist-{random_str(16)}.txt")
     with open(full_wordlist_file, "w") as f:
         f.write("\n".join(full_wordlist_encoded))
     

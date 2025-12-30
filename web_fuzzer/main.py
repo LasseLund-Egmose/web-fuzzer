@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import numpy as np
 import os
@@ -14,7 +15,6 @@ from .util import find_common_substrings, parse_http_response
 from .revshells import get_revshells
 from .wordlists import wordlist_strip_prefix
 
-# TODO: Store data in .local
 # TODO: Known path should not start with slash and should end with one (if it is a dir)
 # TODO: Allow for multiple modes simultaneously
 # TODO: Figure out how to recommend PHP Inclusion (LFI), SSTI or XSS based on reflection analysis
@@ -249,7 +249,6 @@ def main():
     parser.add_argument('-t', '--type', required=True, choices=list(FUZZ_TYPES.keys()), help="Type of fuzz")
     parser.add_argument('-th', '--threads', type=int, default=4, help="Number of threads to run FFUF with")
 
-
     parser.add_argument('--attackbox-ip')
     parser.add_argument('--attackbox-port', type=int)
     parser.add_argument('--known-path')
@@ -291,11 +290,12 @@ def main():
     
     print(f"Will search for reflection of {response_search_targets} in response bodies. Make sure these inputs are as unique as possible!")
     
-    data_dir = "./fuzzy-data"
+    config_hash = hashlib.md5(f"{args.proto}|{args.request}|{args.type}|{args.attackbox_ip}|{args.attackbox_port}|{args.known_path}".encode("utf-8")).hexdigest()
+    data_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "web-fuzzer", config_hash)
     shutil.rmtree(data_dir, ignore_errors=True)
     os.makedirs(data_dir)
 
-    for i, fuzz_args in enumerate(fuzz_type.command_args(args)):
+    for i, fuzz_args in enumerate(fuzz_type.command_args(data_dir, args)):
         data_file = os.path.join(data_dir, f"ffuf-{i}.json")
         os.system(f"ffuf -noninteractive -t {args.threads} -mc all -request-proto {args.proto} -request {args.request}{fuzz_args} -o {data_file} -of json -od {data_dir}/ > /dev/null")
 
