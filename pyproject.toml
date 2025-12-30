@@ -1,0 +1,16 @@
+[project]
+name = "web-fuzzer"
+version = "0.1.0"
+description = "A fuzzing wrapper around ffuf"
+requires-python = ">=3.13"
+
+dependencies = [
+    "numpy",
+    "pyahocorasick",
+    "requests",
+    "stpyv8",
+    "tqdm"
+]
+
+[project.scripts]
+web-fuzzer = "web_fuzzer.main:main"

