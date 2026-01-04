@@ -21,6 +21,7 @@ from .wordlists import wordlist_strip_prefix
 
 # TODO: SQL webshell mode - e.g. ' UNION SELECT "PHP SHELL", null, null, null, null INTO OUTFILE "/var/www/html/tmp/webshell.php" -- //
 #           - Test on e.g. SQL Injections Attacks - Module Exercise - VM #2 
+# TODO: SQL error-based and blind-based modes?
 # TODO: PHP filters (php://filter/... and data://...)
 # TODO: Remote file inclusion? Test if we can establish a connection to a file hosted on a local webserver (run a simple web server). Or does this go in the PHP Inclusion, SSTI, and XSS category?
 
