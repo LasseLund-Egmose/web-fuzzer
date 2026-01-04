@@ -15,13 +15,11 @@ from .encoders import *
 from .revshells import get_revshells
 from .wordlists import wordlist_strip_prefix
 
-# TODO: Cap results
-# TODO: Known path should not start with slash and should end with one (if it is a dir)
 # TODO: Allow for multiple modes simultaneously
+# TODO: Known path should not start with slash and should end with one (if it is a dir)
 # TODO: Figure out how to recommend PHP Inclusion (LFI), SSTI or XSS based on reflection analysis
 
 # TODO: PHP filters (php://filter/... and data://...)
-# TODO: SQL injection
 # TODO: Remote file inclusion? Test if we can establish a connection to a file hosted on a local webserver (run a simple web server). Or does this go in the PHP Inclusion, SSTI, and XSS category?
 
 def relpath_linux(args):
@@ -85,6 +83,12 @@ FUZZ_TYPES = {
         ]),
     ], encoders=[url_encoder], required_args=["known_path"]),
 
+    "sqli": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            "/usr/share/wordlists/wfuzz/Injections/SQL.txt"
+        ]),
+    ], encoders=[url_encoder], required_args=[]),
+
     "revshell-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             # TODO: Try downloading the sufficient tools beforehand?
@@ -116,7 +120,8 @@ def key_by(scan_results: list, key: str):
     return results
 
 def compute_outliers(values, z_scores):
-    for start_z in range(100, 0, -1):
+    max_z_score = int(round(max(z_scores), 0)) + 1
+    for start_z in range(max_z_score, 0, -1):
         outliers = values[z_scores > start_z]
 
         if len(outliers) > 0:
@@ -147,7 +152,10 @@ def compute_analysis_groups(keyed_results: dict):
     return compute_outliers(values, z_scores), mean, std
 
 def display_analysis_group(keyed_results: dict, total: int):
-    for k_val, results in sorted(keyed_results.items(), key=lambda s: s[0]):
+    for i, (k_val, results) in enumerate(sorted(keyed_results.items(), key=lambda s: s[0], reverse=True)):
+        if i >= 50: # Cap at displaying 50 results
+            break
+
         results = list(sorted(results, key=lambda r: r.url))
 
         print(f"{k_val} ({round(len(results) / total * 100, 2)}% of all results):")
@@ -206,9 +214,9 @@ def find_substrings(args):
     scan_result, targets, min_len = args
 
     # Add individual payloads as targets as well
-    for payload in scan_result.payloads:
+    for _, payload in scan_result.payloads:
         if len(payload) >= min_len:
-            targets.add(payload)
+            targets.add(payload.encode())
 
     _, response_body = parse_http_response(scan_result.response_raw)
     substrings = find_common_substrings(targets, response_body, min_len)
