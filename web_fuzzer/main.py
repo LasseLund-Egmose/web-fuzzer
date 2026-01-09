@@ -17,6 +17,7 @@ from .revshells import get_revshells
 from .sql import *
 from .wordlists import wordlist_strip_prefix
 
+# TODO: Expand union mode to include an option for stacked queries as well
 # TODO: Remote file inclusion?
 #   - Test if we can establish a connection to a file hosted on a local webserver (configure http-server to serve basic shell.php).
 # TODO: PHP filters (php://filter/... and data://...)
