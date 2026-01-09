@@ -35,4 +35,4 @@ class ScanResult():
     lines: int
     content_type: str
     duration: int
-    response_raw: bytes
+    response_body: bytes

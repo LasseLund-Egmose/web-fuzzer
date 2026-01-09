@@ -27,7 +27,7 @@ def parse_http_response(response_raw: bytes):
         except zlib.error:
             response_body = zlib.decompress(response_body, -zlib.MAX_WBITS)
     
-    return response, response_body
+    return response_body
 
 def find_common_substrings(targets, long_bytes, min_len=8):
     long_s = long_bytes.decode('latin1')
