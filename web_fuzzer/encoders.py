@@ -1,4 +1,3 @@
-import base64
 import string
 
 def identity_encoder(w: str):
@@ -21,23 +20,3 @@ def url_encoder(w: str):
 
 def url_encoder_strict(w: str):
     yield "".join("%{0:0>2x}".format(ord(c)) if c not in (string.ascii_uppercase + string.ascii_lowercase + string.digits) else c for c in w)
-
-def revshell_encoder_linux(w: str):
-    yield w
-    yield from url_encoder_strict(w)
-
-    bash_wrap = f"bash -c '{w.replace("'", "\\'")}'"
-    yield bash_wrap
-    yield from url_encoder_strict(bash_wrap)
-
-def revshell_encoder_windows(w: str):
-    yield w
-    yield from url_encoder_strict(w)
-
-    powershell_wrap = f"powershell -c '{w.replace("'", "\\'")}'"
-    yield powershell_wrap
-    yield from url_encoder_strict(powershell_wrap)
-
-    powershell_encode = f"powershell -e {base64.b64encode(w.encode('utf-16le')).decode('utf-8')}"
-    yield powershell_encode
-    yield from url_encoder_strict(powershell_encode)
