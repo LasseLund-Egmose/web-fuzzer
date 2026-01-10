@@ -10,6 +10,7 @@ from glob import glob
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 
+from .const import MAX_DISPLAY_RESULTS, INTERESTING_STRINGS
 from .data_classes import *
 from .util import find_common_substrings, parse_http_response
 from .encoders import *
@@ -17,7 +18,6 @@ from .revshells import get_revshells
 from .sql import *
 from .wordlists import wordlist_strip_prefix
 
-# TODO: Expand union mode to include an option for stacked queries as well
 # TODO: Remote file inclusion?
 #   - Test if we can establish a connection to a file hosted on a local webserver (configure http-server to serve basic shell.php).
 # TODO: PHP filters (php://filter/... and data://...)
@@ -107,22 +107,20 @@ FUZZ_TYPES = {
         ]),
     ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
 
-    "sqli-identify": FuzzType(params = [
+    "sqli-id-known-payloads": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             "/usr/share/wordlists/wfuzz/Injections/SQL.txt"
         ]),
     ], encoders=[url_encoder_strict], required_args=[]),
 
-    "sqli-union": FuzzType(params = [
+    "sqli-id-union-stack": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             sqli_prefix,
-            sqli_union,
+            sqli_union_stack,
             sqli_suffix,
         ]),
     ], encoders=[url_encoder_strict], required_args=[]),
 }
-
-MAX_DISPLAY_RESULTS = 10
 
 def key_by(scan_results: list, key: str):
     results = {}
@@ -231,6 +229,31 @@ def display_missing_payloads_analysis(missing_payloads: dict):
 
         print()
 
+def display_response_interesting_strings_analysis(scan_results: list[ScanResult]):
+    search_results = {key: set() for key in INTERESTING_STRINGS}
+
+    for scan_result in scan_results:
+        for key in search_results.keys():
+            if key.lower().encode() in scan_result.response_body.lower():
+                search_results[key].add(scan_result)
+
+    print(f"\033[38;5;28m----- Results for interesting strings:\033[0m")
+
+    for key, results in search_results.items():
+        if len(results) == 0:
+            continue
+
+        print(f"\033[38;5;114m--- String `{key}`:\033[0m")
+
+        for i, result in enumerate(results):
+            if i >= MAX_DISPLAY_RESULTS:
+                print("- ...")
+                break
+
+            print(f"- {dict(result.payloads)}")
+        
+        print()
+
 def find_substrings(args):
     scan_result, targets, min_len = args
 
@@ -242,7 +265,7 @@ def find_substrings(args):
     substrings = find_common_substrings(targets, scan_result.response_body, min_len)
     return scan_result, substrings
 
-def display_response_analysis(scan_results: list, targets: set, min_len=8):
+def display_response_substring_analysis(scan_results: list, targets: set, min_len=8):
     targets = set(filter(lambda t: len(t) >= min_len, targets))
     matches = {}
 
@@ -412,7 +435,8 @@ def main():
     else:
         display_missing_payloads_analysis(missing_payloads)
 
-    display_response_analysis(scan_results, response_search_targets)
+    display_response_interesting_strings_analysis(scan_results)
+    display_response_substring_analysis(scan_results, response_search_targets)
 
 if __name__ == "__main__":
     main()

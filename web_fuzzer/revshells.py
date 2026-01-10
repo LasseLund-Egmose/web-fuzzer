@@ -2,7 +2,7 @@ import base64
 import requests
 import STPyV8
 
-WINDOWS_SHELLS = ["powershell.exe", "powershell", "cmd.exe", "cmd"]
+from .const import WINDOWS_SHELLS
 
 def emit_shells(command: str, shells: list):
     if "{shell}" not in command:
