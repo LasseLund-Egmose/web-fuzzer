@@ -68,7 +68,7 @@ def sqli_execute_linux(args): # Assumes known prefix and suffix
     yield from sqli_execute_all(args, os = "LINUX", command = "sleep 10")
 
 def sqli_execute_windows(args):
-    command = "powershell.exe -ep bypass -e cwBsAGUAZQBwACAAMQAwAA==" # powershell.exe -ep bypass -e cwBsAGUAZQBwACAAMQAwAA==
+    command = "powershell.exe -ep bypass -e cwBsAGUAZQBwACAAMQAwAA==" # sleep 10
 
     yield from sqli_execute_all(args, "WINDOWS", command)
 
