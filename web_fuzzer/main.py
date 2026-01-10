@@ -99,13 +99,13 @@ FUZZ_TYPES = {
         FuzzParameter(name="FUZZ", wordlists=[
             sqli_execute_linux
         ]),
-    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
+    ], encoders=[url_encoder_strict], required_args=[]),
 
     "sqli-execute-windows": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             sqli_execute_windows
         ]),
-    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
+    ], encoders=[url_encoder_strict], required_args=[]),
 
     "sqli-id-known-payloads": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
