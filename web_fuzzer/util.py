@@ -13,10 +13,13 @@ class ResponseSocket():
         return self.file
 
 def parse_http_response(response_raw: bytes):
-    resp_socket = ResponseSocket(response_raw)
-    response = HTTPResponse(resp_socket)
-    response.begin()
-    response_body = response.read()
+    try:
+        resp_socket = ResponseSocket(response_raw)
+        response = HTTPResponse(resp_socket)
+        response.begin()
+        response_body = response.read()
+    except:
+        return b""
     
     encoding = response.getheader("Content-Encoding", "").lower()
     if encoding == "gzip":

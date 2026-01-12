@@ -19,6 +19,9 @@ from .revshells import get_revshells
 from .sql import *
 from .wordlists import wordlist_strip_prefix
 
+# TODO: Update to loop over scan results once (and then free memory after each iteration) to not kill memory on large runs
+#           - Analysis functions should keep their own minimal state during looping
+
 def relpath_linux(args):
     return [b"", b"../", b"../../", b"../../../", b"../../../../../../../../../../../../", b"/", b"~/"]
 
@@ -390,6 +393,8 @@ def main():
 
     data_files = glob(os.path.join(data_dir, "ffuf-*.json"))
     for data_file in sorted(data_files):
+        print(f"\n\nProcessing {data_file}...")
+
         with open(data_file, "rb") as f:
             scan = json.load(f)
 
@@ -407,7 +412,7 @@ def main():
                         
                         missing_payloads[data_file][param][line].append(i)
 
-            for result in scan["results"]:
+            for result in tqdm(scan["results"]):
                 payloads = result["input"]
                 del payloads["FFUFHASH"]
 
@@ -416,13 +421,16 @@ def main():
                     request_raw, response_raw = f.read().split(b"\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n")
                 
                 response_body = parse_http_response(response_raw)
-                response_body_str = response_body.decode('utf-8')
+                try:
+                    response_body_str = response_body.decode('utf-8')
 
-                if match_regex != None and match_regex.search(response_body_str) == None: # Ignore results not matching match_regex
-                    continue
-                
-                if filter_regex != None and filter_regex.search(response_body_str) != None: # Ignore results matching filter_regex
-                    continue
+                    if match_regex != None and match_regex.search(response_body_str) == None: # Ignore results not matching match_regex
+                        continue
+                    
+                    if filter_regex != None and filter_regex.search(response_body_str) != None: # Ignore results matching filter_regex
+                        continue
+                except:
+                    pass
 
                 scan_results.add(ScanResult(payloads=frozenset(payloads.items()), url=result["url"], status=result["status"], length=result["length"],
                                                 words=result["words"], lines=result["lines"], content_type=result["content-type"], duration=result["duration"],
@@ -431,6 +439,8 @@ def main():
                 for param, value in payloads.items():
                     if value in missing_payloads[data_file][param]:
                         del missing_payloads[data_file][param][value]
+
+    print("\n\n")
 
     display_analysis(scan_results, "status", "Status code")
     display_analysis(scan_results, "length", "Content length", outlier_based=True)
