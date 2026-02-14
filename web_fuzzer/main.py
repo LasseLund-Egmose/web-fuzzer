@@ -385,7 +385,7 @@ def main():
 
         response_search_targets = set(request_params.values()).union(set(request_headers.values()))
 
-        if request_body:
+        if request_body and len(request_body) < 64:
             response_search_targets.add(request_body)
 
         response_search_targets = set([t.encode() for t in response_search_targets])
