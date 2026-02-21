@@ -43,10 +43,22 @@ def relpath(args):
     
     return relpath_linux(args) + relpath_windows(args)
 
+DEFAULT_USERNAMES = ['admin', 'administrator', 'root', 'user', 'guest', 'test', 'demo', 'support', 'operator']
+DEFAULT_PASSWORDS = ['admin', 'password', '123456', '12345678', '123456789', 'admin123', 'Admin@123', 'P@ssw0rd', 'qwerty', 'welcome', '12345', '123456789', '1234', 'letmein', 'changeme', 'password123', 'Aa123456', '111111', '1234567890', 'admin123']
+
 FUZZ_TYPES = {
     "command-injection": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             "/usr/share/seclists/Fuzzing/command-injection-commix.txt"
+        ]),
+    ], encoders=[identity_encoder], required_args=[]),
+
+    "default-credentials": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            lambda args: [u.encode() for u in DEFAULT_USERNAMES]
+        ]),
+        FuzzParameter(name="FUZ2Z", wordlists=[
+            lambda args: [p.encode() for p in DEFAULT_PASSWORDS]
         ]),
     ], encoders=[identity_encoder], required_args=[]),
 
@@ -372,7 +384,7 @@ def main():
 
         requestline_headers, request_body = request_raw, b""
         if b"\r\n\r\n" in request_raw or b"\n\n" in request_raw:
-            requestline_headers, request_body = request_raw.split(b"\r\n\r\n") if b"\r\n\r\n" in request_raw else request_raw.split(b"\n\n")
+            requestline_headers, request_body = request_raw.split(b"\r\n\r\n", maxsplit=1) if b"\r\n\r\n" in request_raw else request_raw.split(b"\n\n", maxsplit=1)
         
         requestline, *headers = requestline_headers.split(b"\r\n") if b"\r\n" in requestline_headers else requestline_headers.split(b"\n")
         
