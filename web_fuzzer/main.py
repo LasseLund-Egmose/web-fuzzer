@@ -29,13 +29,13 @@ def relpath_linux(args):
     if args.known_relpath:
         return [args.known_relpath.encode()]
     
-    return [b"", b"../", b"../../", b"../../../", b"../../../../../../../../../../../../", b"/", b"~/"]
+    return [b"", b"/", b"../", b"../../", b"../../../", b"../../../../../../../../../../../../", b"/", b"~/"]
 
 def relpath_windows(args):
     if args.known_relpath:
         return [args.known_relpath.encode()]
     
-    return [b"", b".\\", b"..\\", b"..\\..\\", b"..\\..\\..\\", b"..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\", b"C:\\"]
+    return [b"", b"/", b"\\", b".\\", b"..\\", b"..\\..\\", b"..\\..\\..\\", b"..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\", b"C:\\"]
 
 def relpath(args):
     if args.known_relpath:
@@ -106,6 +106,14 @@ FUZZ_TYPES = {
             "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
         ]),
     ], encoders=[lfi_encoder], required_args=["known_part"]),
+
+    "lfi-webroot-windows": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            relpath_windows,
+            wordlist_strip_prefix("/usr/share/seclists/Discovery/Web-Content/default-web-root-directory-windows.txt", [b"c:\\", b"C:\\", b"c:/", b"C:/"]),
+            "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
+        ]),
+    ], encoders=[lfi_encoder], required_args=[]),
 
     "php": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
