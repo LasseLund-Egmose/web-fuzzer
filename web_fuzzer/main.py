@@ -19,12 +19,6 @@ from .revshells import get_revshells
 from .sql import *
 from .wordlists import wordlist_strip_prefix
 
-# TODO: Update to loop over scan results once (and then free memory after each iteration) to not kill memory on large runs
-#           - Analysis functions should keep their own minimal state during looping
-# TODO: Mode for fuzzing SMB share paths that could reveal Net-NTLMv2 hashes (assuming responder is running)?
-#           - E.g., filename="\\192.168.45.213\a\hello.txt" or filename"\\\\192.168.45.213\\a\\hello.txt". Test on 16.3.3. Cracking Net-NTLMv2 lab 2
-#           - Both for filenames in uploads but also for command injection? Test cmd injection on 16.3.4 Relaying Net-NTLMv2 lab 2
-
 def relpath_linux(args):
     if args.known_relpath:
         return [args.known_relpath.encode()]
@@ -267,17 +261,10 @@ def display_missing_payloads_analysis(missing_payloads: dict):
 
         print()
 
-def display_response_interesting_strings_analysis(scan_results: list[ScanResult]):
-    search_results = {key: set() for key in INTERESTING_STRINGS}
-
-    for scan_result in scan_results:
-        for key in search_results.keys():
-            if key.lower().encode() in scan_result.response_body.lower():
-                search_results[key].add(scan_result)
-
+def display_response_interesting_strings_analysis(search_results: dict):
     print(f"\033[38;5;28m----- Results for interesting strings:\033[0m")
 
-    for key, results in search_results.items():
+    for key, results in sorted(search_results.items(), key=lambda i: i[0]):
         if len(results) == 0:
             continue
 
@@ -292,47 +279,66 @@ def display_response_interesting_strings_analysis(scan_results: list[ScanResult]
         
         print()
 
-def find_substrings(args):
-    scan_result, targets, min_len = args
+def parse_response_bodies(args):
+    scan_result, interesting_strings, substring_search_targets, min_substring_len = args
 
-    # Add individual payloads as targets as well
-    for _, payload in scan_result.payloads:
-        if len(payload) >= min_len:
-            targets.add(payload.encode())
-
-    substrings = find_common_substrings(targets, scan_result.response_body, min_len)
-    return scan_result, substrings
-
-def display_response_substring_analysis(scan_results: list, targets: set, min_len=8):
-    targets = set(filter(lambda t: len(t) >= min_len, targets))
-    matches = {}
-
-    pool_args = [(scan_result, targets, min_len) for scan_result in scan_results]
-    with Pool(cpu_count() // 2) as pool:
-        for scan_result, substrings in tqdm(pool.imap_unordered(find_substrings, pool_args), total=len(pool_args), desc="Analyzing reflection substrings..."):
-            for substring in substrings:
-                if scan_result not in matches:
-                    matches[scan_result] = set()
-                
-                matches[scan_result].add(substring)
+    with open(scan_result.resultfile_path, "rb") as f:
+        _, response_raw = f.read().split(b"\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n")
     
+    response_body = parse_http_response(response_raw)
+
+    # Search for interesting substrings
+    search_results = set()
+    for needle in interesting_strings:
+        if isinstance(needle, re.Pattern):
+            for result in needle.finditer(response_body):
+                result = result.group()
+
+                if len(result) < min_substring_len:
+                    continue
+
+                if all([result[i] == 0 for i in range(1, len(result), 2)]):
+                    search_results.add(result.decode("utf-16le"))
+                else:
+                    search_results.add(result.decode())
+            
+            continue
+        
+        if needle.lower().encode() in response_body.lower():
+            search_results.add(needle)
+
+    # Add scan result's payloads as substring search targets as well
+    for _, payload in scan_result.payloads:
+        if len(payload) >= min_substring_len:
+            substring_search_targets.add(payload.encode())
+
+    # Find substrings
+    filtered_substring_matches = set()
+    substring_matches = find_common_substrings(substring_search_targets, response_body, min_substring_len)
+    for match in substring_matches:
+        if any([len(match) < len(other_match) and match in other_match for other_match in substring_matches]):
+            continue # Take only broadest matches
+
+        filtered_substring_matches.add(match)
+
+    return scan_result, search_results, filtered_substring_matches
+
+def display_response_substring_analysis(substring_matches: dict):   
     print(f"\033[38;5;28m----- Results for substring reflection:\033[0m")
 
-    # Sort by length of longest substring and then number of substrings secondary
-    sorted_results = sorted(matches.items(), key=lambda sr_subs: (max([len(s) for s in sr_subs[1]]), len(sr_subs[1])), reverse=True)
-    for i, (scan_result, substrings) in enumerate(sorted_results):
-        if i >= 50: # Cap at displaying 50 results
-            break
-        
-        print(f"\033[38;5;114m{dict(scan_result.payloads)} ({len(substrings)} substring matches):\033[0m")
+    for substring, results in sorted(substring_matches.items(), key=lambda i: i[0]):
+        if len(results) == 0:
+            continue
 
-        results = list(sorted(substrings, key=lambda m: len(m), reverse=True))
-        for result in results[:MAX_DISPLAY_RESULTS]:
-            print(f"- {result}")
+        print(f"\033[38;5;114m--- String `{substring}`:\033[0m")
+
+        for i, result in enumerate(results):
+            if i >= MAX_DISPLAY_RESULTS:
+                print("- ...")
+                break
+
+            print(f"- {dict(result.payloads)}")
         
-        if len(results) > MAX_DISPLAY_RESULTS:
-            print("- ...")
-    
         print()
 
 def main():
@@ -341,9 +347,6 @@ def main():
     parser.add_argument('-r', '--request', required=True, help="Request template file")
     parser.add_argument('-t', '--types', required=True, choices=list(FUZZ_TYPES.keys()), nargs="+", help="Type of fuzz")
     parser.add_argument('-th', '--threads', type=int, default=4, help="Number of threads to run FFUF with")
-
-    parser.add_argument('-mr', '--match-regex', help="Match regexp")
-    parser.add_argument('-fr', '--filter-regex', help="Filter regexp")
 
     parser.add_argument('--attackbox-ip')
     parser.add_argument('--attackbox-port', type=int)
@@ -410,8 +413,6 @@ def main():
 
         response_search_targets = set([t.encode() for t in response_search_targets])
     
-    print(f"Will search for reflection of {response_search_targets} in response bodies. Make sure these inputs are as unique as possible!")
-    
     config_hash = hashlib.md5(f"{args.proto}|{args.request}|{args.types}|{args.attackbox_ip}|{args.attackbox_port}|{args.known_part}".encode("utf-8")).hexdigest()
     data_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "web-fuzzer", config_hash)
     shutil.rmtree(data_dir, ignore_errors=True)
@@ -428,9 +429,6 @@ def main():
 
     scan_results = set()
     missing_payloads = {}
-
-    match_regex = re.compile(args.match_regex) if args.match_regex else None
-    filter_regex = re.compile(args.filter_regex) if args.filter_regex else None
 
     data_files = glob(os.path.join(data_dir, "ffuf-*.json"))
     for data_file in sorted(data_files):
@@ -456,26 +454,10 @@ def main():
             for result in tqdm(scan["results"]):
                 payloads = result["input"]
                 del payloads["FFUFHASH"]
-
-                resultfile_path = os.path.join(data_dir, result["resultfile"])
-                with open(resultfile_path, "rb") as f:
-                    request_raw, response_raw = f.read().split(b"\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n")
                 
-                response_body = parse_http_response(response_raw)
-                try:
-                    response_body_str = response_body.decode('utf-8')
-
-                    if match_regex != None and match_regex.search(response_body_str) == None: # Ignore results not matching match_regex
-                        continue
-                    
-                    if filter_regex != None and filter_regex.search(response_body_str) != None: # Ignore results matching filter_regex
-                        continue
-                except:
-                    pass
-
                 scan_results.add(ScanResult(payloads=frozenset(payloads.items()), url=result["url"], status=result["status"], length=result["length"],
                                                 words=result["words"], lines=result["lines"], content_type=result["content-type"], duration=result["duration"],
-                                                response_body=response_body))
+                                                resultfile_path = os.path.join(data_dir, result["resultfile"])))
 
                 for param, value in payloads.items():
                     if value in missing_payloads[data_file][param]:
@@ -489,13 +471,34 @@ def main():
     display_analysis(scan_results, "lines", "Content lines", outlier_based=True)
     display_analysis(scan_results, "duration", "Time to response (nanoseconds)", outlier_based=True)
 
-    if args.match_regex or args.filter_regex:
-        print("Skipping missing payloads analysis as --match-regex or --filter-regex is used")
-    else:
-        display_missing_payloads_analysis(missing_payloads)
+    display_missing_payloads_analysis(missing_payloads)
 
-    display_response_interesting_strings_analysis(scan_results)
-    display_response_substring_analysis(scan_results, response_search_targets)
+    # Response body parsing
+    global_search_results = {}
+
+    min_len = 8
+    response_search_targets = set(filter(lambda t: len(t) >= min_len, response_search_targets))
+    global_substring_matches = {}
+
+    pool_args = [(scan_result, INTERESTING_STRINGS, response_search_targets, min_len) for scan_result in scan_results]
+    with Pool(cpu_count() // 2) as pool:
+        for scan_result, search_results, substring_matches in tqdm(pool.imap_unordered(parse_response_bodies, pool_args), total=len(pool_args), desc="Analyzing response bodies..."):
+            for key in search_results: # Handle keyword search
+                if key not in global_search_results:
+                    global_search_results[key] = set()
+
+                global_search_results[key].add(scan_result)
+            
+            for substring in substring_matches: # Handle substring search
+                if substring not in global_substring_matches:
+                    global_substring_matches[substring] = set()
+                
+                global_substring_matches[substring].add(scan_result)
+
+    print()
+
+    display_response_interesting_strings_analysis(global_search_results)
+    display_response_substring_analysis(global_substring_matches)
 
 if __name__ == "__main__":
     main()
