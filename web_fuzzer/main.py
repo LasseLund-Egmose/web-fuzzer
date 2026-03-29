@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import hashlib
 import json
 import numpy as np
@@ -6,8 +7,10 @@ import os
 import re
 import shutil
 
+from functools import partial
 from glob import glob
 from multiprocessing import Pool, cpu_count
+from playwright.async_api import async_playwright
 from tqdm import tqdm
 
 from .const import MAX_DISPLAY_RESULTS, INTERESTING_STRINGS
@@ -18,6 +21,7 @@ from .php import php_fuzz
 from .revshells import get_revshells
 from .sql import *
 from .wordlists import wordlist_strip_prefix
+from .xss import xss_fuzz, xss_fuzz_labeled
 
 def relpath_linux(args):
     if args.known_relpath:
@@ -152,6 +156,12 @@ FUZZ_TYPES = {
             sqli_suffix,
         ]),
     ], encoders=[url_encoder_strict], required_args=[]),
+
+    "xss": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            xss_fuzz,
+        ]),
+    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
 }
 
 def key_by(scan_results: list, key: str):
@@ -261,26 +271,33 @@ def display_missing_payloads_analysis(missing_payloads: dict):
 
         print()
 
-def display_response_interesting_strings_analysis(search_results: dict):
-    print(f"\033[38;5;28m----- Results for interesting strings:\033[0m")
+def parse_response_bodies(scan_result, interesting_strings, substring_search_targets, min_substring_len, xss_test):
+    async def xss_test_async(html_body):
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
 
-    for key, results in sorted(search_results.items(), key=lambda i: i[0]):
-        if len(results) == 0:
-            continue
+            console_logs = []
+            page.on("console", lambda msg: console_logs.append(f"[{msg.type}] {msg.text}"))
 
-        print(f"\033[38;5;114m--- String `{key}`:\033[0m")
+            await page.set_content(html_body)
+            
+            await page.wait_for_load_state("domcontentloaded")
+            await page.wait_for_timeout(500)
 
-        for i, result in enumerate(results):
-            if i >= MAX_DISPLAY_RESULTS:
-                print("- ...")
-                break
+            await browser.close()
 
-            print(f"- {dict(result.payloads)}")
-        
-        print()
+            payloads_fired = set()
+            for log in console_logs:
+                if not log.startswith("[log] "):
+                    continue
 
-def parse_response_bodies(args):
-    scan_result, interesting_strings, substring_search_targets, min_substring_len = args
+                log = log[6:]
+
+                if log.isnumeric():
+                    payloads_fired.add(int(log))
+            
+            return payloads_fired
 
     with open(scan_result.resultfile_path, "rb") as f:
         _, response_raw = f.read().split(b"\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n")
@@ -320,8 +337,33 @@ def parse_response_bodies(args):
             continue # Take only broadest matches
 
         filtered_substring_matches.add(match)
+    
+    xss_payloads = set()
+    if xss_test:
+        try:
+            xss_payloads = asyncio.run(xss_test_async(response_body.decode()))
+        except:
+            pass
 
-    return scan_result, search_results, filtered_substring_matches
+    return scan_result, search_results, filtered_substring_matches, xss_payloads
+
+def display_response_interesting_strings_analysis(search_results: dict):
+    print(f"\033[38;5;28m----- Results for interesting strings:\033[0m")
+
+    for key, results in sorted(search_results.items(), key=lambda i: i[0]):
+        if len(results) == 0:
+            continue
+
+        print(f"\033[38;5;114m--- String `{key}`:\033[0m")
+
+        for i, result in enumerate(results):
+            if i >= MAX_DISPLAY_RESULTS:
+                print("- ...")
+                break
+
+            print(f"- {dict(result.payloads)}")
+        
+        print()
 
 def display_response_substring_analysis(substring_matches: dict):   
     print(f"\033[38;5;28m----- Results for substring reflection:\033[0m")
@@ -340,6 +382,21 @@ def display_response_substring_analysis(substring_matches: dict):
             print(f"- {dict(result.payloads)}")
         
         print()
+
+def display_response_xss_analysis(xss_payloads: set, payloads_dict: dict):
+    print(f"\033[38;5;28m----- Results for XSS payloads that fired:\033[0m")
+
+    # List all remote payloads
+    for payload_id, (payload_type, payload) in payloads_dict.items():
+        if payload_type != "Remote":
+            continue
+
+        print(f"- Remote payload (ID {payload_id}): {payload}")
+
+    # List fired local payloads
+    for payload_id in sorted(xss_payloads):
+        payload_type, payload = payloads_dict.get(payload_id, ("unknown", "Unknown payload"))
+        print(f"- Local payload fired (ID {payload_id}): {payload}")
 
 def main():
     parser = argparse.ArgumentParser()
@@ -480,9 +537,11 @@ def main():
     response_search_targets = set(filter(lambda t: len(t) >= min_len, response_search_targets))
     global_substring_matches = {}
 
-    pool_args = [(scan_result, INTERESTING_STRINGS, response_search_targets, min_len) for scan_result in scan_results]
+    global_xss_payloads = set()
+
+    parse_callable = partial(parse_response_bodies, interesting_strings=INTERESTING_STRINGS, substring_search_targets=response_search_targets, min_substring_len=min_len, xss_test=("xss" in args.types))
     with Pool(cpu_count() // 2) as pool:
-        for scan_result, search_results, substring_matches in tqdm(pool.imap_unordered(parse_response_bodies, pool_args), total=len(pool_args), desc="Analyzing response bodies..."):
+        for scan_result, search_results, substring_matches, xss_payloads in tqdm(pool.imap_unordered(parse_callable, scan_results), total=len(scan_results), desc="Analyzing response bodies..."):
             for key in search_results: # Handle keyword search
                 if key not in global_search_results:
                     global_search_results[key] = set()
@@ -494,11 +553,15 @@ def main():
                     global_substring_matches[substring] = set()
                 
                 global_substring_matches[substring].add(scan_result)
-
-    print()
+            
+            for payload in xss_payloads: # Handle XSS payloads that fired
+                global_xss_payloads.add(payload)
 
     display_response_interesting_strings_analysis(global_search_results)
     display_response_substring_analysis(global_substring_matches)
+
+    if "xss" in args.types:
+        display_response_xss_analysis(global_xss_payloads, {i: (t, p) for i, t, p in xss_fuzz_labeled(args)})
 
 if __name__ == "__main__":
     main()
