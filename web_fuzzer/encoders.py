@@ -16,13 +16,14 @@ def lfi_encoder(args, w: str):
         if not f:
             return
         
-        if "dot-dot" in args.lfi_encoders:
-            encode_dotdot = f.replace("..", "%2e%2e")
-            yield encode_dotdot
+        url_encoded = f.replace("..", "%2e%2e").replace("/", "%2f").replace("\\", "%5c")
+        if "url-encode" in args.lfi_encoders:
+            yield url_encoded
 
-        if "dot-dot-slash" in args.lfi_encoders:
-            encode_dotdot_and_slashes = encode_dotdot.replace("/", "%2f").replace("\\", "%5c")
-            yield encode_dotdot_and_slashes
+        double_url_encoded = url_encoded.replace("%", "%25")
+        if "double-url-encode" in args.lfi_encoders:
+            yield double_url_encoded
+        
 
 def url_encoder_strict(args, w: str):
     yield "".join("%{0:0>2x}".format(ord(c)) if c not in (string.ascii_uppercase + string.ascii_lowercase + string.digits) else c for c in w)

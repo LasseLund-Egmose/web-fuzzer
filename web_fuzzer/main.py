@@ -412,8 +412,8 @@ def main():
     parser.add_argument('--known-part')
     parser.add_argument('--known-relpath')
     parser.add_argument('--lfi-encoders', nargs="+",
-                        choices=["id", "dot-dot", "dot-dot-slash", "php-filter"],
-                        default=["id", "dot-dot", "dot-dot-slash", "php-filter"],
+                        choices=["id", "url-encode", "double-url-encode", "php-filter"],
+                        default=["id", "url-encode", "double-url-encode", "php-filter"],
                         help="Encoders to use for LFI fuzzing.")
 
     args = parser.parse_args()
