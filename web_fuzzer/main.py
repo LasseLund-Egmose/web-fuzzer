@@ -420,6 +420,7 @@ def main():
     parser.add_argument('-r', '--request', required=True, help="Request template file")
     parser.add_argument('-t', '--types', required=True, choices=list(FUZZ_TYPES.keys()), nargs="+", help="Type of fuzz")
     parser.add_argument('-th', '--threads', type=int, default=4, help="Number of threads to run FFUF with")
+    parser.add_argument('-w', '--wordlist', nargs="+", default=[], help="Override built-in parameter wordlist. In the format `/path/to/wordlist.txt:param` (can be used multiple times)")
 
     parser.add_argument('--attackbox-ip')
     parser.add_argument('--attackbox-port', type=int)
@@ -433,8 +434,23 @@ def main():
                         help="Encoders to use for LFI fuzzing.")
 
     args = parser.parse_args()
-    
+
     fuzz_types = [FUZZ_TYPES[t] for t in args.types]
+    fuzz_params = set([fp.name for ft in fuzz_types for fp in ft.params])
+
+    override_params = {}
+    for w in args.wordlist or []:
+        if w.count(":") != 1:
+            print(f"Invalid wordlist format: `{w}`. Should be in the format `/path/to/wordlist.txt:param`")
+            return
+        
+        path, param = w.split(":", maxsplit=1)
+        if param not in fuzz_params:
+            print(f"Invalid parameter `{param}` in wordlist override. Should be one of {', '.join(sorted(fuzz_params))}")
+            return
+
+        print(f"Overriding parameter `{param}` with wordlist `{path}`")
+        override_params[param] = path
 
     for typ, fuzz_type in zip(args.types, fuzz_types):
         for req_arg in fuzz_type.required_args:
@@ -493,7 +509,7 @@ def main():
 
     command_args = []
     for fuzz_type in fuzz_types:
-        command_args.extend(fuzz_type.command_args(data_dir, args))
+        command_args.extend(fuzz_type.command_args(override_params, data_dir, args))
 
     for i, fuzz_args in enumerate(command_args):
         data_file = os.path.join(data_dir, f"ffuf-{i}.json")
