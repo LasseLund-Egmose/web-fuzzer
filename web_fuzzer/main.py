@@ -41,8 +41,6 @@ def relpath(args):
     
     return relpath_linux(args) + relpath_windows(args)
 
-DEFAULT_USERNAMES = ['admin', 'administrator', 'root', 'user', 'guest', 'test', 'demo', 'support', 'operator']
-DEFAULT_PASSWORDS = ['admin', 'password', '123456', '12345678', '123456789', 'admin123', 'Admin@123', 'P@ssw0rd', 'qwerty', 'welcome', '12345', '123456789', '1234', 'letmein', 'changeme', 'password123', 'Aa123456', '111111', '1234567890', 'admin123']
 
 FUZZ_TYPES = {
     "command-injection": FuzzType(params = [
@@ -175,6 +173,9 @@ FUZZ_TYPES = {
         ]),
     ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
 }
+
+RESULTFILE_SPLIT_LF = b"\n\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n"
+RESULTFILE_SPLIT_CRLF = RESULTFILE_SPLIT_LF.replace(b"\n", b"\r\n")
 
 def key_by(scan_results: list, key: str):
     results = {}
@@ -315,8 +316,19 @@ def parse_response_bodies(scan_result, interesting_strings, substring_search_tar
             
             return payloads_fired
 
+    response_raw = None
     with open(scan_result.resultfile_path, "rb") as f:
-        _, response_raw = f.read().split(b"\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n")
+        # Try LF split first
+        resultfile_split = f.read().split(RESULTFILE_SPLIT_LF, maxsplit=1)
+
+        if len(resultfile_split) == 1: # If LF split did not work, try CRLF split
+            resultfile_split = resultfile_split[0].split(RESULTFILE_SPLIT_CRLF, maxsplit=1)
+
+        if len(resultfile_split) == 2:
+            _, response_raw = resultfile_split
+    
+    if not response_raw:
+        return scan_result, set(), set(), set()
     
     response_body = parse_http_response(response_raw)
 
