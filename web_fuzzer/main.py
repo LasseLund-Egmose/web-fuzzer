@@ -51,14 +51,26 @@ FUZZ_TYPES = {
         ]),
     ], encoders=[identity_encoder], required_args=[]),
 
-    "default-credentials": FuzzType(params = [
+    "logins": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
-            lambda args: [u.encode() for u in DEFAULT_USERNAMES]
+            "/usr/share/seclists/Usernames/top-usernames-shortlist.txt"
         ]),
         FuzzParameter(name="FUZ2Z", wordlists=[
-            lambda args: [p.encode() for p in DEFAULT_PASSWORDS]
+            "/usr/share/seclists/Passwords/Common-Credentials/Pwdb_top-1000.txt"
         ]),
-    ], encoders=[identity_encoder], required_args=[]),
+    ], encoders=[url_encoder_strict], required_args=[]),
+
+    "login-passwords": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            "/usr/share/seclists/Passwords/Common-Credentials/Pwdb_top-1000000.txt"
+        ]),
+    ], encoders=[url_encoder_strict], required_args=[]),
+
+    "login-usernames": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            "/usr/share/seclists/Usernames/xato-net-10-million-usernames-dup.txt"
+        ]),
+    ], encoders=[url_encoder_strict], required_args=[]),
 
     "lfi-general": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -263,6 +275,10 @@ def display_missing_payloads_analysis(missing_payloads: dict):
 
     for data_file, params_payloads in missing_payloads.items():
         print(f"\033[38;5;114m--- Missing payloads for {data_file}:\033[0m")
+
+        if sum([len(p) for p in params_payloads.values()]) > 100:
+            print(f"- Too many missing payloads to display ({sum([len(p) for p in params_payloads.values()])} total), skipping...\n")
+            continue
 
         for param, payloads_linenos in sorted(params_payloads.items(), key=lambda item: item[0]):
             for payload, _ in sorted(payloads_linenos.items(), key=lambda item: min(item[1])):
@@ -482,6 +498,8 @@ def main():
     for i, fuzz_args in enumerate(command_args):
         data_file = os.path.join(data_dir, f"ffuf-{i}.json")
         log_file = os.path.join(data_dir, f"ffuf-log-{i}.txt")
+
+        print("Press CTRL+C to stop the scan and start analysis (partial results will be saved and analyzed), or wait for it to finish...")
         os.system(f"ffuf -noninteractive -t {args.threads} -mc all -request-proto {args.proto} -request {args.request} -timeout 30{fuzz_args} -debug-log {log_file} -o {data_file} -of json -od {data_dir}/ > /dev/null")
 
     scan_results = set()
