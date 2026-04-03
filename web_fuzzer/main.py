@@ -431,7 +431,7 @@ def main():
     parser.add_argument('-p', '--proto', required=True, help="http or https")
     parser.add_argument('-r', '--request', required=True, help="Request template file")
     parser.add_argument('-t', '--types', required=True, choices=list(FUZZ_TYPES.keys()), nargs="+", help="Type of fuzz")
-    parser.add_argument('-th', '--threads', type=int, default=4, help="Number of threads to run FFUF with")
+    parser.add_argument('-th', '--threads', type=int, default=40, help="Number of threads to run FFUF with")
     parser.add_argument('-w', '--wordlist', nargs="+", default=[], help="Override built-in parameter wordlist. In the format `/path/to/wordlist.txt:param` (can be used multiple times)")
 
     parser.add_argument('--attackbox-ip')
