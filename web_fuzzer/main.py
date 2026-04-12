@@ -43,12 +43,6 @@ def relpath(args):
 
 
 FUZZ_TYPES = {
-    "command-injection": FuzzType(params = [
-        FuzzParameter(name="FUZZ", wordlists=[
-            "/usr/share/seclists/Fuzzing/command-injection-commix.txt"
-        ]),
-    ], encoders=[identity_encoder], required_args=[]),
-
     "logins": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             "/usr/share/seclists/Usernames/top-usernames-shortlist.txt"
