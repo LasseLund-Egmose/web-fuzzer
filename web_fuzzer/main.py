@@ -44,6 +44,11 @@ def relpath(args):
 
 
 FUZZ_TYPES = {
+    "idor": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            lambda args: [str(i).encode() for i in range(1, 100000)]
+        ]),
+    ], encoders=[url_encoder_strict], required_args=[]),
     "logins": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             "/usr/share/seclists/Usernames/top-usernames-shortlist.txt"
@@ -94,13 +99,6 @@ FUZZ_TYPES = {
             ]
         ]),
     ], encoders=[lfi_encoder], required_args=[]),
-
-    "lfi-known-file": FuzzType(params = [
-        FuzzParameter(name="FUZZ", wordlists=[
-            relpath,
-            lambda args: [args.known_file.encode()]
-        ]),
-    ], encoders=[lfi_encoder], required_args=["known_file"]),
     
     "lfi-known-part-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -110,6 +108,28 @@ FUZZ_TYPES = {
         ]),
     ], encoders=[lfi_encoder], required_args=["known_part"]),
 
+    "lfi-known-part-windows": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            relpath_windows,
+            lambda args: [args.known_part.encode()],
+            "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
+        ]),
+    ], encoders=[lfi_encoder], required_args=["known_part"]),
+
+    "lfi-php": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            php_fuzz
+        ]),
+    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
+
+    "lfi-webroot-linux": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            relpath_linux,
+            wordlist_strip_prefix("/usr/share/seclists/Discovery/Web-Content/default-web-root-directory-linux.txt", [b"~/", b"/", b"~"]),
+            "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
+        ]),
+    ], encoders=[lfi_encoder], required_args=[]),
+    
     "lfi-webroot-windows": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             relpath_windows,
@@ -117,12 +137,6 @@ FUZZ_TYPES = {
             "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
         ]),
     ], encoders=[lfi_encoder], required_args=[]),
-
-    "php": FuzzType(params = [
-        FuzzParameter(name="FUZZ", wordlists=[
-            php_fuzz
-        ]),
-    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
 
     "revshell-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -438,7 +452,6 @@ def main():
     parser.add_argument('--attackbox-ip')
     parser.add_argument('--attackbox-port', type=int)
     parser.add_argument('--attackbox-web-port', type=int)
-    parser.add_argument('--known-file')
     parser.add_argument('--known-part')
     parser.add_argument('--known-relpath')
     parser.add_argument('--lfi-encoders', nargs="+",
@@ -470,10 +483,6 @@ def main():
             if not getattr(args, req_arg):
                 print(f"Error: Argument `{req_arg.replace("_", "-")}` is required to perform `{typ}` fuzzing")
                 return
-            
-    if args.known_file and args.known_file[0] == "/":
-        print("--known-file should not start with a slash")
-        return
     
     if args.known_part and (args.known_part[0] == "/" or args.known_part[-1] != "/"):
         print("--known-part should not start with a slash, and it should end with one")

