@@ -20,6 +20,7 @@ from .encoders import *
 from .php import php_fuzz
 from .revshells import get_revshells
 from .sql import *
+from .ssrf import ssrf_service_fuzz
 from .wordlists import wordlist_strip_prefix
 from .xss import xss_fuzz, xss_fuzz_labeled
 
@@ -161,6 +162,12 @@ FUZZ_TYPES = {
         ]),
     ], encoders=[url_encoder_strict], required_args=[]),
 
+    "ssrf-services": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            ssrf_service_fuzz,
+        ]),
+    ], encoders=[url_encoder_strict], required_args=[]),
+    
     "xss": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             xss_fuzz,
