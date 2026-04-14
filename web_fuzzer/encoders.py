@@ -23,7 +23,9 @@ def lfi_encoder(args, w: str):
         double_url_encoded = url_encoded.replace("%", "%25")
         if "double-url-encode" in args.lfi_encoders:
             yield double_url_encoded
-        
+
+def json_encoder(args, w: str):
+    yield w.replace('"', '\\"')
 
 def url_encoder_strict(args, w: str):
     yield "".join("%{0:0>2x}".format(ord(c)) if c not in (string.ascii_uppercase + string.ascii_lowercase + string.digits) else c for c in w)

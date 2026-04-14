@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .wordlists import wordlist_build
@@ -7,17 +8,17 @@ class FuzzParameter():
     name: str
     wordlists: list
 
-    def combined_wordlist(self, encoders, override_list, data_dir, args):
-        return wordlist_build([override_list] if override_list else self.wordlists, encoders, data_dir, args)
+    def combined_wordlist(self, encoder, override_list, data_dir, args):
+        return wordlist_build([override_list] if override_list else self.wordlists, encoder, data_dir, args)
 
 @dataclass
 class FuzzType():
     params: list
-    encoders: list
+    encoder: Callable
     required_args: list
 
     def command_args(self, override_params, data_dir, args):
-        params_wordlists = [(p, p.combined_wordlist(self.encoders, override_params.get(p.name), data_dir, args)) for p in self.params]
+        params_wordlists = [(p, p.combined_wordlist(self.encoder, override_params.get(p.name), data_dir, args)) for p in self.params]
 
         command_args = ""
         for param, wordlist in params_wordlists:

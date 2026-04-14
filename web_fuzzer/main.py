@@ -48,7 +48,8 @@ FUZZ_TYPES = {
         FuzzParameter(name="FUZZ", wordlists=[
             lambda args: [str(i).encode() for i in range(1, 100000)]
         ]),
-    ], encoders=[url_encoder_strict], required_args=[]),
+    ], encoder=None, required_args=[]),
+
     "logins": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             "/usr/share/seclists/Usernames/top-usernames-shortlist.txt"
@@ -56,40 +57,40 @@ FUZZ_TYPES = {
         FuzzParameter(name="FUZ2Z", wordlists=[
             "/usr/share/seclists/Passwords/Common-Credentials/Pwdb_top-1000.txt"
         ]),
-    ], encoders=[url_encoder_strict], required_args=[]),
+    ], encoder=None, required_args=[]),
 
     "login-passwords": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             "/usr/share/seclists/Passwords/Common-Credentials/Pwdb_top-1000000.txt"
         ]),
-    ], encoders=[url_encoder_strict], required_args=[]),
+    ], encoder=None, required_args=[]),
 
     "login-usernames": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             "/usr/share/seclists/Usernames/xato-net-10-million-usernames-dup.txt"
         ]),
-    ], encoders=[url_encoder_strict], required_args=[]),
+    ], encoder=None, required_args=[]),
 
     "lfi-general": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             relpath,
             [wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-linux-and-windows_by-1N3@CrowdShield.txt", [b"/", b"c:\\", b"C:\\", b"c:/", b"C:/"])]
         ]),
-    ], encoders=[lfi_encoder], required_args=[]),
+    ], encoder=lfi_encoder, required_args=[]),
 
     "lfi-general-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             relpath_linux,
             [wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-gracefulsecurity-linux.txt", [b"~/", b"/", b"~"])]
         ]),
-    ], encoders=[lfi_encoder], required_args=[]),
+    ], encoder=lfi_encoder, required_args=[]),
 
     "lfi-general-linux-extra": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             relpath_linux,
             [wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-etc-files-of-all-linux-packages.txt", [b"/"])]
         ]),
-    ], encoders=[lfi_encoder], required_args=[]),
+    ], encoder=lfi_encoder, required_args=[]),
 
     "lfi-general-windows": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -98,7 +99,7 @@ FUZZ_TYPES = {
                 wordlist_strip_prefix("/usr/share/seclists/Fuzzing/LFI/LFI-linux-and-windows_by-1N3@CrowdShield.txt", [b"/", b"c:\\", b"C:\\", b"c:/", b"C:/"])
             ]
         ]),
-    ], encoders=[lfi_encoder], required_args=[]),
+    ], encoder=lfi_encoder, required_args=[]),
     
     "lfi-known-part-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -106,7 +107,7 @@ FUZZ_TYPES = {
             lambda args: [args.known_part.encode()],
             "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
         ]),
-    ], encoders=[lfi_encoder], required_args=["known_part"]),
+    ], encoder=lfi_encoder, required_args=["known_part"]),
 
     "lfi-known-part-windows": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -114,13 +115,13 @@ FUZZ_TYPES = {
             lambda args: [args.known_part.encode()],
             "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
         ]),
-    ], encoders=[lfi_encoder], required_args=["known_part"]),
+    ], encoder=lfi_encoder, required_args=["known_part"]),
 
     "lfi-php": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             php_fuzz
         ]),
-    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
+    ], encoder=None, required_args=["attackbox_ip", "attackbox_web_port"]),
 
     "lfi-webroot-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -128,7 +129,7 @@ FUZZ_TYPES = {
             wordlist_strip_prefix("/usr/share/seclists/Discovery/Web-Content/default-web-root-directory-linux.txt", [b"~/", b"/", b"~"]),
             "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
         ]),
-    ], encoders=[lfi_encoder], required_args=[]),
+    ], encoder=lfi_encoder, required_args=[]),
     
     "lfi-webroot-windows": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -136,37 +137,37 @@ FUZZ_TYPES = {
             wordlist_strip_prefix("/usr/share/seclists/Discovery/Web-Content/default-web-root-directory-windows.txt", [b"c:\\", b"C:\\", b"c:/", b"C:/"]),
             "/usr/share/seclists/Fuzzing/fuzz-Bo0oM.txt"
         ]),
-    ], encoders=[lfi_encoder], required_args=[]),
+    ], encoder=lfi_encoder, required_args=[]),
 
     "revshell-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port, args.attackbox_web_port, os="linux")]
         ]),
-    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_port", "attackbox_web_port"]),
+    ], encoder=None, required_args=["attackbox_ip", "attackbox_port", "attackbox_web_port"]),
 
     "revshell-windows": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             lambda args: [rev.encode() for rev in get_revshells(args.attackbox_ip, args.attackbox_port, args.attackbox_web_port, os="windows")]
         ]),
-    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_port", "attackbox_web_port"]),
+    ], encoder=None, required_args=["attackbox_ip", "attackbox_port", "attackbox_web_port"]),
 
     "sqli-execute-linux": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             sqli_execute_linux
         ]),
-    ], encoders=[url_encoder_strict], required_args=[]),
+    ], encoder=None, required_args=[]),
 
     "sqli-execute-windows": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             sqli_execute_windows
         ]),
-    ], encoders=[url_encoder_strict], required_args=[]),
+    ], encoder=None, required_args=[]),
 
     "sqli-id-known-payloads": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             "/usr/share/wordlists/wfuzz/Injections/SQL.txt"
         ]),
-    ], encoders=[url_encoder_strict], required_args=[]),
+    ], encoder=None, required_args=[]),
 
     "sqli-id-union-stack": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
@@ -174,19 +175,19 @@ FUZZ_TYPES = {
             sqli_union_stack,
             sqli_suffix,
         ]),
-    ], encoders=[url_encoder_strict], required_args=[]),
+    ], encoder=None, required_args=[]),
 
     "ssrf-services": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             ssrf_service_fuzz,
         ]),
-    ], encoders=[url_encoder_strict], required_args=[]),
+    ], encoder=None, required_args=[]),
     
     "xss": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             xss_fuzz,
         ]),
-    ], encoders=[url_encoder_strict], required_args=["attackbox_ip", "attackbox_web_port"]),
+    ], encoder=None, required_args=["attackbox_ip", "attackbox_web_port"]),
 }
 
 RESULTFILE_SPLIT_LF = b"\n\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n"
@@ -462,8 +463,9 @@ def main():
     args = parser.parse_args()
 
     fuzz_types = [FUZZ_TYPES[t] for t in args.types]
-    fuzz_params = set([fp.name for ft in fuzz_types for fp in ft.params])
+    default_encoder = url_encoder_strict
 
+    fuzz_params = set([fp.name for ft in fuzz_types for fp in ft.params])
     override_params = {}
     for w in args.wordlist or []:
         if w.count(":") != 1:
@@ -512,6 +514,10 @@ def main():
         
         request_path = requestline.split(b" ")[1].decode()
         request_headers = dict([h.decode().split(": ") for h in headers if b": " in h])
+        if "application/json" in request_headers.get("Content-Type", ""):
+            default_encoder = json_encoder
+            print("Using JSON encoder as default encoder since Content-Type is application/json")
+
         request_body = request_body.decode()
 
         request_query = request_path.split("?")[1] if "?" in request_path else ""
@@ -523,6 +529,12 @@ def main():
             response_search_targets.add(request_body)
 
         response_search_targets = set([t.encode() for t in response_search_targets])
+    
+    for fuzz_type in fuzz_types:
+        if fuzz_type.encoder:
+            continue
+
+        fuzz_type.encoder = default_encoder
     
     config_hash = hashlib.md5(f"{args.proto}|{args.request}|{args.types}|{args.attackbox_ip}|{args.attackbox_port}|{args.known_part}".encode("utf-8")).hexdigest()
     data_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "web-fuzzer", config_hash)

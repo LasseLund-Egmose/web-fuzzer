@@ -64,7 +64,7 @@ def wordlists_product(wordlist_1: list, wordlist_2: list):
     
     return full_wordlist
 
-def wordlist_build(wordlist_files: list, encoders, data_dir, args):
+def wordlist_build(wordlist_files: list, encoder, data_dir, args):
     full_wordlist = []
 
     for wordlist_files in wordlist_files:
@@ -73,12 +73,11 @@ def wordlist_build(wordlist_files: list, encoders, data_dir, args):
 
         wordlist = wordlists_load(wordlist_files, args)
         full_wordlist = wordlists_product(full_wordlist, wordlist) if len(full_wordlist) > 0 else wordlist
-    
+
     full_wordlist_encoded = []
     for w in full_wordlist:
-        for encoder in encoders:
-            for output in encoder(args, w):
-                full_wordlist_encoded.append(output)
+        for output in encoder(args, w):
+            full_wordlist_encoded.append(output)
 
     full_wordlist_file = os.path.join(data_dir, f"wordlist-{random_str(16)}.txt")
     with open(full_wordlist_file, "w") as f:
