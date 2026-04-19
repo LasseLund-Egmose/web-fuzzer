@@ -49,7 +49,7 @@ FUZZ_TYPES = {
         FuzzParameter(name="FUZZ", wordlists=[
             command_injection_fuzz
         ]),
-    ], encoder=url_encoder_strict, required_args=[]),
+    ], encoder=None, required_args=[]),
 
     "idor": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
