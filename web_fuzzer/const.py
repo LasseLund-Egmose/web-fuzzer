@@ -12,7 +12,7 @@ WEBROOTS = {
 
 WINDOWS_SHELLS = ["powershell.exe", "powershell", "cmd.exe", "cmd"]
 
-INTERESTING_STRINGS = ["INTERESTING_INCLUDED_PAYLOAD", ".aspx", ".jsp", ".php", "SQL Syntax", "Syntax Error", "Incorrect syntax", "Failed", "Error", "Warning"]
+INTERESTING_STRINGS = ["INTERESTING_INCLUDED_PAYLOAD", ".aspx", ".jsp", ".php", "SQL Syntax", "Syntax Error", "Incorrect syntax", "Failed", "Error", "Warning", "136828126"]
 INTERESTING_STRINGS += [wr for wr in (WEBROOTS["LINUX"] + WEBROOTS["WINDOWS"]) if wr]
 INTERESTING_STRINGS += [
     re.compile(br'\/(?:bin|boot|dev|etc|home|lib|lib32|lib64|lost\+found|media|mnt|opt|proc|root|run|sbin|srv|sys|tmp|usr|var)\/(?:[^\/\0]{1,16}\/)*[^\/\0]{0,16}'), # Linux path

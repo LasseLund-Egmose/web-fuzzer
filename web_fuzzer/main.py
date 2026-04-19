@@ -17,6 +17,7 @@ from .const import MAX_DISPLAY_RESULTS, INTERESTING_STRINGS
 from .data_classes import *
 from .util import find_common_substrings, parse_http_response
 from .encoders import *
+from .ci import command_injection_fuzz
 from .php import php_fuzz
 from .revshells import get_revshells
 from .sql import *
@@ -44,6 +45,12 @@ def relpath(args):
 
 
 FUZZ_TYPES = {
+    "command-injection": FuzzType(params = [
+        FuzzParameter(name="FUZZ", wordlists=[
+            command_injection_fuzz
+        ]),
+    ], encoder=url_encoder_strict, required_args=[]),
+
     "idor": FuzzType(params = [
         FuzzParameter(name="FUZZ", wordlists=[
             lambda args: [str(i).encode() for i in range(1, 100000)]
@@ -190,7 +197,7 @@ FUZZ_TYPES = {
     ], encoder=None, required_args=["attackbox_ip", "attackbox_web_port"]),
 }
 
-RESULTFILE_SPLIT_LF = b"\n\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n"
+RESULTFILE_SPLIT_LF = b"\n---- \xe2\x86\x91 Request ---- Response \xe2\x86\x93 ----\n\n"
 RESULTFILE_SPLIT_CRLF = RESULTFILE_SPLIT_LF.replace(b"\n", b"\r\n")
 
 def key_by(scan_results: list, key: str):
